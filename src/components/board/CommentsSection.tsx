@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { MessageCircle, Check, ChevronDown, ChevronUp, Send, Loader2 } from 'lucide-react';
 import { formatRelativeDate, getInitials } from '@/lib/utils';
@@ -10,25 +10,47 @@ import toast from 'react-hot-toast';
 interface CommentsSectionProps {
   reviewPointId: string;
   projectId: string;
+  members: { user_id: string; profile: Profile }[];
 }
 
-export default function CommentsSection({ reviewPointId, projectId }: CommentsSectionProps) {
-  const [comments, setComments] = useState<(Comment & { profile?: Profile })[]>([]);
+export default function CommentsSection({ reviewPointId, projectId, members }: CommentsSectionProps) {
+  const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [sending, setSending] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const commentsWithProfiles = useMemo(() => {
+    const profilesByUserId = new Map(
+      members
+        .filter((member) => member.profile)
+        .map((member) => [member.user_id, member.profile])
+    );
+
+    return comments.map((comment) => ({
+      ...comment,
+      profile: profilesByUserId.get(comment.user_id),
+    }));
+  }, [comments, members]);
+
   const fetchComments = useCallback(async () => {
+    setLoading(true);
     const supabase = createClient();
-    const { data } = await supabase
-      .from('comments')
-      .select('*, profile:profiles(*)')
-      .eq('review_point_id', reviewPointId)
-      .order('created_at', { ascending: true });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setComments((data as any) || []);
-    setLoading(false);
+    try {
+      const { data, error } = await supabase
+        .from('comments')
+        .select('*')
+        .eq('review_point_id', reviewPointId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      setComments(data || []);
+    } catch (err: any) {
+      setComments([]);
+      toast.error(err.message || 'Failed to load comments');
+    } finally {
+      setLoading(false);
+    }
   }, [reviewPointId]);
 
   useEffect(() => {
@@ -64,20 +86,21 @@ export default function CommentsSection({ reviewPointId, projectId }: CommentsSe
     try {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from('comments').update({
+      const { error } = await supabase.from('comments').update({
         resolved,
         resolved_by: resolved ? user?.id : null,
         resolved_at: resolved ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
       }).eq('id', commentId);
+      if (error) throw error;
       await fetchComments();
-    } catch {
-      toast.error('Failed to update comment');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update comment');
     }
   };
 
-  const unresolvedComments = comments.filter((c) => !c.resolved);
-  const resolvedComments = comments.filter((c) => c.resolved);
+  const unresolvedComments = commentsWithProfiles.filter((c) => !c.resolved);
+  const resolvedComments = commentsWithProfiles.filter((c) => c.resolved);
 
   return (
     <div>
@@ -126,6 +149,12 @@ export default function CommentsSection({ reviewPointId, projectId }: CommentsSe
                 </div>
               )}
             </div>
+          )}
+
+          {unresolvedComments.length === 0 && resolvedComments.length === 0 && (
+            <p className="mb-3 text-sm text-[var(--muted-foreground)]">
+              No comments yet.
+            </p>
           )}
 
           {/* New comment input */}

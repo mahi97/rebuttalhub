@@ -321,6 +321,7 @@ export default function TaskDetailModal({
           <CommentsSection
             reviewPointId={point.id}
             projectId={point.project_id}
+            members={members}
           />
         </div>
       </div>

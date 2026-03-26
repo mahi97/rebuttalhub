@@ -15,6 +15,8 @@ interface RebuttalCompilerProps {
   project: Project | null;
 }
 
+const ALL_REVIEWERS_KEY = '__all_reviewers__';
+
 export default function RebuttalCompiler({ reviews, points, project }: RebuttalCompilerProps) {
   const [charLimit, setCharLimit] = useState(5000);
   const [rebuttals, setRebuttals] = useState<Record<string, string>>({});
@@ -35,6 +37,41 @@ export default function RebuttalCompiler({ reviews, points, project }: RebuttalC
     return points
       .filter((p) => p.review_id === review.id)
       .sort((a, b) => a.sort_order - b.sort_order);
+  };
+
+  const buildMergedReviewerRebuttal = (reviewerName: string) => {
+    const reviewerPoints = getReviewerPoints(reviewerName);
+    const thankYouPoint = reviewerPoints.find((p) => p.section === 'Thank You');
+    const responsePoints = reviewerPoints.filter((p) => p.section !== 'Thank You');
+
+    let merged = '';
+
+    const thankYou = thankYouPoint?.final_response || thankYouPoint?.draft_response || '';
+    if (thankYou) {
+      merged += thankYou.trim() + '\n\n';
+    }
+
+    for (const p of responsePoints) {
+      const response = p.final_response || p.draft_response;
+      if (!response) continue;
+
+      merged += '---\n';
+      merged += `> **${p.label}:** *${p.point_text.slice(0, 200)}${p.point_text.length > 200 ? '...' : ''}*\n\n`;
+      merged += `**Response ${p.label}:** ${response}\n\n`;
+    }
+
+    return merged.trim();
+  };
+
+  const buildCombinedRebuttal = (sourceRebuttals: Record<string, string>) => {
+    return reviewerNames
+      .map((name) => {
+        const text = sourceRebuttals[name]?.trim();
+        if (!text) return null;
+        return `# Rebuttal to ${name}\n\n${text}`;
+      })
+      .filter(Boolean)
+      .join('\n\n***\n\n');
   };
 
   const handleCompileReviewer = async (reviewerName: string) => {
@@ -80,43 +117,37 @@ export default function RebuttalCompiler({ reviews, points, project }: RebuttalC
 
   /** Merge without LLM - just concatenate responses using the template format */
   const handleMergeReviewer = (reviewerName: string) => {
-    const reviewerPoints = getReviewerPoints(reviewerName);
-    const thankYouPoint = reviewerPoints.find((p) => p.section === 'Thank You');
-    const responsePoints = reviewerPoints.filter((p) => p.section !== 'Thank You');
+    const merged = buildMergedReviewerRebuttal(reviewerName);
 
-    let merged = '';
-
-    // Thank you note
-    const thankYou = thankYouPoint?.final_response || thankYouPoint?.draft_response || '';
-    if (thankYou) {
-      merged += thankYou + '\n\n';
-    }
-
-    // Each response in order
-    for (const p of responsePoints) {
-      const response = p.final_response || p.draft_response;
-      if (!response) continue;
-
-      merged += '---\n';
-      merged += `> **${p.label}:** *${p.point_text.slice(0, 200)}${p.point_text.length > 200 ? '...' : ''}*\n\n`;
-      merged += `**Response ${p.label}:** ${response}\n\n`;
-    }
-
-    if (!merged.trim()) {
+    if (!merged) {
       toast.error(`No responses to merge for ${reviewerName}`);
       return;
     }
 
-    setRebuttals((prev) => ({ ...prev, [reviewerName]: merged.trim() }));
+    setRebuttals((prev) => ({ ...prev, [reviewerName]: merged }));
     setActiveReviewer(reviewerName);
     toast.success(`Merged ${reviewerName} rebuttal`);
   };
 
   const handleMergeAll = () => {
-    for (const name of reviewerNames) {
-      handleMergeReviewer(name);
+    const mergedByReviewer = reviewerNames.reduce<Record<string, string>>((acc, name) => {
+      const merged = buildMergedReviewerRebuttal(name);
+      if (merged) {
+        acc[name] = merged;
+      }
+      return acc;
+    }, {});
+
+    const mergedCount = Object.keys(mergedByReviewer).length;
+
+    if (mergedCount === 0) {
+      toast.error('No responses to merge across reviewers');
+      return;
     }
-    toast.success('All rebuttals merged');
+
+    setRebuttals((prev) => ({ ...prev, ...mergedByReviewer }));
+    setActiveReviewer(ALL_REVIEWERS_KEY);
+    toast.success(`Merged ${mergedCount} reviewer rebuttal${mergedCount > 1 ? 's' : ''}`);
   };
 
   const handleReduceLength = async (reviewerName: string) => {
@@ -148,7 +179,8 @@ export default function RebuttalCompiler({ reviews, points, project }: RebuttalC
   };
 
   const handleDownloadAll = () => {
-    for (const [reviewerName, text] of Object.entries(rebuttals)) {
+    for (const reviewerName of reviewerNames) {
+      const text = rebuttals[reviewerName];
       if (!text) continue;
       const blob = new Blob([text], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
@@ -160,10 +192,7 @@ export default function RebuttalCompiler({ reviews, points, project }: RebuttalC
     }
 
     // Also download combined
-    const combined = Object.entries(rebuttals)
-      .filter(([, text]) => text)
-      .map(([name, text]) => `# Rebuttal to ${name}\n\n${text}`)
-      .join('\n\n---\n\n');
+    const combined = buildCombinedRebuttal(rebuttals);
     if (combined) {
       const blob = new Blob([combined], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
@@ -175,7 +204,14 @@ export default function RebuttalCompiler({ reviews, points, project }: RebuttalC
     }
   };
 
-  const currentRebuttal = activeReviewer ? rebuttals[activeReviewer] || '' : '';
+  const isCombinedView = activeReviewer === ALL_REVIEWERS_KEY;
+  const combinedRebuttal = buildCombinedRebuttal(rebuttals);
+  const currentRebuttal = isCombinedView
+    ? combinedRebuttal
+    : activeReviewer
+      ? rebuttals[activeReviewer] || ''
+      : '';
+  const activeTitle = isCombinedView ? 'All Reviewers' : activeReviewer;
 
   return (
     <div className="space-y-6">
@@ -301,10 +337,10 @@ export default function RebuttalCompiler({ reviews, points, project }: RebuttalC
         <div>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold">
-              Rebuttal for {activeReviewer}
+              Rebuttal for {activeTitle}
             </h3>
             <div className="flex gap-2">
-              {currentRebuttal.length > charLimit && (
+              {!isCombinedView && currentRebuttal.length > charLimit && (
                 <button
                   onClick={() => handleReduceLength(activeReviewer)}
                   disabled={loading}
@@ -317,14 +353,23 @@ export default function RebuttalCompiler({ reviews, points, project }: RebuttalC
             </div>
           </div>
 
-          <CharacterCounter current={currentRebuttal.length} limit={charLimit} />
+          {!isCombinedView && (
+            <CharacterCounter current={currentRebuttal.length} limit={charLimit} />
+          )}
+          {isCombinedView && (
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Combined preview generated from the current reviewer rebuttals, with a divider between each reviewer.
+            </p>
+          )}
 
           <div className="mt-3">
             <textarea
               value={currentRebuttal}
-              onChange={(e) =>
-                setRebuttals((prev) => ({ ...prev, [activeReviewer]: e.target.value }))
-              }
+              onChange={(e) => {
+                if (isCombinedView) return;
+                setRebuttals((prev) => ({ ...prev, [activeReviewer]: e.target.value }));
+              }}
+              readOnly={isCombinedView}
               className="w-full h-64 bg-[var(--background)] border border-[var(--border)] rounded-lg p-4 text-sm font-mono resize-y focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
