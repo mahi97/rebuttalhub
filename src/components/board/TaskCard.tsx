@@ -29,7 +29,7 @@ export default function TaskCard({ point, index, onClick }: TaskCardProps) {
         >
           <div className="flex items-center gap-2 mb-2">
             <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full border ${sectionClass}`}>
-              {point.section}
+              {point.label || point.section}
             </span>
             <div
               className="w-2 h-2 rounded-full ml-auto flex-shrink-0"

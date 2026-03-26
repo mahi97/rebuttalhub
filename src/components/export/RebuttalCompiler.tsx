@@ -1,108 +1,148 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Loader2, Sparkles, Scissors, Copy, Download, Check } from 'lucide-react';
+import { Loader2, Sparkles, Scissors, Copy, Download } from 'lucide-react';
 import { useLLM } from '@/hooks/useLLM';
 import CharacterCounter from './CharacterCounter';
 import RebuttalPreview from './RebuttalPreview';
 import toast from 'react-hot-toast';
-import type { ReviewPoint, Review } from '@/types';
+import type { ReviewPoint, Review, Project } from '@/types';
+import { DEFAULT_REBUTTAL_TEMPLATE, DEFAULT_GUIDELINES } from '@/types';
 
 interface RebuttalCompilerProps {
   reviews: Review[];
   points: ReviewPoint[];
+  project: Project | null;
 }
 
-export default function RebuttalCompiler({ reviews, points }: RebuttalCompilerProps) {
+export default function RebuttalCompiler({ reviews, points, project }: RebuttalCompilerProps) {
   const [charLimit, setCharLimit] = useState(5000);
-  const [selectedReviewer, setSelectedReviewer] = useState('all');
-  const [rebuttal, setRebuttal] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [rebuttals, setRebuttals] = useState<Record<string, string>>({});
+  const [activeReviewer, setActiveReviewer] = useState<string>('');
   const { callLLM, loading } = useLLM();
 
+  const template = project?.rebuttal_template || DEFAULT_REBUTTAL_TEMPLATE;
+  const guidelines = project?.guidelines || DEFAULT_GUIDELINES;
+
   const reviewerNames = useMemo(
-    () => Array.from(new Set(reviews.map((r) => r.reviewer_name))),
+    () => reviews.map((r) => r.reviewer_name),
     [reviews]
   );
 
-  const filteredPoints = useMemo(() => {
-    if (selectedReviewer === 'all') return points;
-    return points.filter((p) => p.review?.reviewer_name === selectedReviewer);
-  }, [points, selectedReviewer]);
+  const getReviewerPoints = (reviewerName: string) => {
+    const review = reviews.find((r) => r.reviewer_name === reviewerName);
+    if (!review) return [];
+    return points
+      .filter((p) => p.review_id === review.id)
+      .sort((a, b) => a.sort_order - b.sort_order);
+  };
 
-  const responsesForCompile = useMemo(() => {
-    return filteredPoints
+  const handleCompileReviewer = async (reviewerName: string) => {
+    const reviewerPoints = getReviewerPoints(reviewerName);
+    const thankYouPoint = reviewerPoints.find((p) => p.section === 'Thank You');
+    const responsePoints = reviewerPoints.filter((p) => p.section !== 'Thank You');
+
+    const responses = responsePoints
       .filter((p) => p.final_response || p.draft_response)
       .map((p) => ({
-        reviewer: p.review?.reviewer_name || 'Reviewer',
+        label: p.label || p.section,
         section: p.section,
         point: p.point_text,
         response: p.final_response || p.draft_response || '',
       }));
-  }, [filteredPoints]);
 
-  const handleCompile = async () => {
-    if (responsesForCompile.length === 0) {
-      toast.error('No responses to compile. Draft responses for review points first.');
+    if (responses.length === 0) {
+      toast.error(`No responses ready for ${reviewerName}. Draft responses first.`);
       return;
     }
 
     const result = await callLLM<{ rebuttal: string }>('compile-rebuttal', {
-      responses: responsesForCompile,
+      reviewerName,
+      thankYouNote: thankYouPoint?.draft_response || thankYouPoint?.final_response || '',
+      responses,
+      template,
+      guidelines,
       charLimit,
     });
-    if (result) setRebuttal(result.rebuttal);
+
+    if (result) {
+      setRebuttals((prev) => ({ ...prev, [reviewerName]: result.rebuttal }));
+      setActiveReviewer(reviewerName);
+    }
   };
 
-  const handleReduceLength = async () => {
-    if (!rebuttal) return;
+  const handleCompileAll = async () => {
+    for (const name of reviewerNames) {
+      await handleCompileReviewer(name);
+    }
+    toast.success('All rebuttals compiled');
+  };
+
+  const handleReduceLength = async (reviewerName: string) => {
+    const text = rebuttals[reviewerName];
+    if (!text) return;
     const result = await callLLM<{ rebuttal: string }>('reduce-length', {
-      rebuttalText: rebuttal,
+      rebuttalText: text,
       charLimit,
     });
-    if (result) setRebuttal(result.rebuttal);
+    if (result) {
+      setRebuttals((prev) => ({ ...prev, [reviewerName]: result.rebuttal }));
+    }
   };
 
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(rebuttal);
-    setCopied(true);
+  const handleCopy = async (reviewerName: string) => {
+    await navigator.clipboard.writeText(rebuttals[reviewerName] || '');
     toast.success('Copied to clipboard');
-    setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDownload = (format: 'md' | 'txt') => {
-    const blob = new Blob([rebuttal], { type: 'text/plain' });
+  const handleDownload = (reviewerName: string, format: 'md' | 'txt') => {
+    const text = rebuttals[reviewerName] || '';
+    const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `rebuttal.${format}`;
+    a.download = `rebuttal_${reviewerName.replace(/\s+/g, '_')}.${format}`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadAll = () => {
+    for (const [reviewerName, text] of Object.entries(rebuttals)) {
+      if (!text) continue;
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rebuttal_${reviewerName.replace(/\s+/g, '_')}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Also download combined
+    const combined = Object.entries(rebuttals)
+      .filter(([, text]) => text)
+      .map(([name, text]) => `# Rebuttal to ${name}\n\n${text}`)
+      .join('\n\n---\n\n');
+    if (combined) {
+      const blob = new Blob([combined], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'rebuttal_all_reviewers.md';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const currentRebuttal = activeReviewer ? rebuttals[activeReviewer] || '' : '';
+
   return (
     <div className="space-y-6">
       {/* Controls */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-1 block">
-            Reviewer
-          </label>
-          <select
-            value={selectedReviewer}
-            onChange={(e) => setSelectedReviewer(e.target.value)}
-            className="w-full bg-[var(--card)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="all">All Reviewers</option>
-            {reviewerNames.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-1 block">
-            Character Limit
+            Character Limit (per reviewer)
           </label>
           <input
             type="number"
@@ -111,92 +151,137 @@ export default function RebuttalCompiler({ reviews, points }: RebuttalCompilerPr
             className="w-full bg-[var(--card)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm"
           />
         </div>
-
         <div>
           <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-1 block">
-            Responses Ready
+            Reviewers
           </label>
           <p className="px-3 py-2 text-sm">
-            <span className="text-blue-400 font-semibold">{responsesForCompile.length}</span>
-            <span className="text-[var(--muted-foreground)]"> / {filteredPoints.length} points have responses</span>
+            {reviewerNames.length} reviewers &middot; {points.length} total points
           </p>
         </div>
       </div>
 
-      {/* Action Buttons */}
+      {/* Per-reviewer compile buttons */}
+      <div>
+        <h3 className="text-sm font-semibold mb-3">Compile Per Reviewer</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {reviewerNames.map((name) => {
+            const rPoints = getReviewerPoints(name);
+            const readyCount = rPoints.filter((p) => p.final_response || p.draft_response).length;
+            const hasRebuttal = !!rebuttals[name];
+
+            return (
+              <div
+                key={name}
+                className={`bg-[var(--card)] rounded-lg border p-4 ${
+                  activeReviewer === name ? 'border-blue-500/50' : 'border-[var(--border)]'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium">{name}</span>
+                  <span className="text-xs text-[var(--muted-foreground)]">
+                    {readyCount}/{rPoints.length} ready
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleCompileReviewer(name)}
+                    disabled={loading}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-md text-xs font-medium transition-colors disabled:opacity-50"
+                  >
+                    {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                    {hasRebuttal ? 'Recompile' : 'Compile'}
+                  </button>
+                  {hasRebuttal && (
+                    <>
+                      <button
+                        onClick={() => setActiveReviewer(name)}
+                        className="px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-md text-xs hover:border-blue-500/50"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={() => handleCopy(name)}
+                        className="px-2 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-md text-xs hover:border-blue-500/50"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => handleDownload(name, 'md')}
+                        className="px-2 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-md text-xs hover:border-blue-500/50"
+                      >
+                        <Download className="w-3 h-3" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Bulk actions */}
       <div className="flex flex-wrap gap-3">
         <button
-          onClick={handleCompile}
-          disabled={loading || responsesForCompile.length === 0}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={handleCompileAll}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-          Generate Rebuttal
+          Compile All Reviewers
         </button>
 
-        {rebuttal && rebuttal.length > charLimit && (
+        {Object.keys(rebuttals).length > 0 && (
           <button
-            onClick={handleReduceLength}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+            onClick={handleDownloadAll}
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--card)] border border-[var(--border)] hover:border-blue-500/50 rounded-lg text-sm transition-colors"
           >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scissors className="w-4 h-4" />}
-            Reduce Length
+            <Download className="w-4 h-4" />
+            Download All (.md per reviewer + combined)
           </button>
         )}
-
-        {rebuttal && (
-          <>
-            <button
-              onClick={handleCopy}
-              className="flex items-center gap-2 px-4 py-2 bg-[var(--card)] border border-[var(--border)] hover:border-blue-500/50 rounded-lg text-sm transition-colors"
-            >
-              {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
-              Copy
-            </button>
-            <button
-              onClick={() => handleDownload('md')}
-              className="flex items-center gap-2 px-4 py-2 bg-[var(--card)] border border-[var(--border)] hover:border-blue-500/50 rounded-lg text-sm transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              .md
-            </button>
-            <button
-              onClick={() => handleDownload('txt')}
-              className="flex items-center gap-2 px-4 py-2 bg-[var(--card)] border border-[var(--border)] hover:border-blue-500/50 rounded-lg text-sm transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              .txt
-            </button>
-          </>
-        )}
       </div>
 
-      {/* Character Counter */}
-      {rebuttal && <CharacterCounter current={rebuttal.length} limit={charLimit} />}
-
-      {/* Editable Rebuttal */}
-      {rebuttal && (
+      {/* Active reviewer preview */}
+      {activeReviewer && currentRebuttal && (
         <div>
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold">Edit Rebuttal</h3>
-            <span className="text-xs text-[var(--muted-foreground)]">
-              Edit directly below. Changes update the character count in real-time.
-            </span>
+            <h3 className="text-sm font-semibold">
+              Rebuttal for {activeReviewer}
+            </h3>
+            <div className="flex gap-2">
+              {currentRebuttal.length > charLimit && (
+                <button
+                  onClick={() => handleReduceLength(activeReviewer)}
+                  disabled={loading}
+                  className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-md text-xs transition-colors disabled:opacity-50"
+                >
+                  <Scissors className="w-3 h-3" />
+                  Reduce Length
+                </button>
+              )}
+            </div>
           </div>
-          <textarea
-            value={rebuttal}
-            onChange={(e) => setRebuttal(e.target.value)}
-            className="w-full h-64 bg-[var(--background)] border border-[var(--border)] rounded-lg p-4 text-sm font-mono resize-y focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
+
+          <CharacterCounter current={currentRebuttal.length} limit={charLimit} />
+
+          <div className="mt-3">
+            <textarea
+              value={currentRebuttal}
+              onChange={(e) =>
+                setRebuttals((prev) => ({ ...prev, [activeReviewer]: e.target.value }))
+              }
+              className="w-full h-64 bg-[var(--background)] border border-[var(--border)] rounded-lg p-4 text-sm font-mono resize-y focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="mt-3">
+            <h4 className="text-xs font-medium text-[var(--muted-foreground)] mb-2">Preview</h4>
+            <RebuttalPreview content={currentRebuttal} />
+          </div>
         </div>
       )}
-
-      {/* Preview */}
-      <div>
-        <h3 className="text-sm font-semibold mb-2">Preview</h3>
-        <RebuttalPreview content={rebuttal} />
-      </div>
     </div>
   );
 }

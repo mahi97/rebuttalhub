@@ -10,7 +10,6 @@ export async function POST(request: Request) {
 
     const { fileId, projectId } = await request.json();
 
-    // Get the file record
     const { data: fileRecord } = await supabase
       .from('project_files')
       .select('*')
@@ -21,7 +20,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
-    // Download file from storage
     const { data: fileData } = await supabase.storage
       .from('project-files')
       .download(fileRecord.storage_path);
@@ -31,14 +29,9 @@ export async function POST(request: Request) {
     }
 
     const html = await fileData.text();
-
-    // Parse reviews from HTML
     const parsedReviews = parseOpenReviewHTML(html);
-
-    // Convert to markdown
     const markdown = openReviewHtmlToMarkdown(html);
 
-    // Update file record with processed content
     await supabase
       .from('project_files')
       .update({
@@ -48,7 +41,8 @@ export async function POST(request: Request) {
       })
       .eq('id', fileId);
 
-    // Insert reviews into database
+    let totalPoints = 0;
+
     for (let i = 0; i < parsedReviews.length; i++) {
       const r = parsedReviews[i];
 
@@ -66,25 +60,49 @@ export async function POST(request: Request) {
         .select()
         .single();
 
-      if (review && r.points.length > 0) {
-        const points = r.points.map((p, j) => ({
+      if (!review) continue;
+
+      const pointsToInsert: any[] = [];
+
+      // Create "Thank You" task from strengths (always first, sort_order 0)
+      if (r.strengths.length > 0) {
+        pointsToInsert.push({
+          review_id: review.id,
+          project_id: projectId,
+          section: 'Thank You',
+          label: 'Thank You',
+          point_text: r.strengths.join('\n\n'),
+          priority: 'medium',
+          status: 'not_started',
+          sort_order: 0,
+        });
+      }
+
+      // Create W/Q/L tasks
+      for (let j = 0; j < r.points.length; j++) {
+        const p = r.points[j];
+        pointsToInsert.push({
           review_id: review.id,
           project_id: projectId,
           section: p.section,
+          label: p.label,
           point_text: p.text,
           priority: p.priority,
-          status: 'not_started' as const,
-          sort_order: j,
-        }));
+          status: 'not_started',
+          sort_order: j + 1, // after thank you note
+        });
+      }
 
-        await supabase.from('review_points').insert(points);
+      if (pointsToInsert.length > 0) {
+        await supabase.from('review_points').insert(pointsToInsert);
+        totalPoints += pointsToInsert.length;
       }
     }
 
     return NextResponse.json({
       success: true,
       reviewCount: parsedReviews.length,
-      pointCount: parsedReviews.reduce((sum, r) => sum + r.points.length, 0),
+      pointCount: totalPoints,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Processing failed' }, { status: 500 });

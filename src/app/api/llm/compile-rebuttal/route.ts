@@ -19,12 +19,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Please set your Anthropic API key in Settings' }, { status: 400 });
     }
 
-    const { responses, charLimit } = await request.json();
+    const { reviewerName, thankYouNote, responses, template, guidelines, charLimit } = await request.json();
 
     const rebuttal = await callClaude(
       profile.anthropic_api_key,
       COMPILE_REBUTTAL_SYSTEM,
-      compileRebuttalPrompt(responses, charLimit || 5000),
+      compileRebuttalPrompt(
+        reviewerName,
+        thankYouNote || '',
+        responses,
+        template || '',
+        guidelines || '',
+        charLimit || 5000
+      ),
       8192
     );
 

@@ -1,31 +1,35 @@
 import * as cheerio from 'cheerio';
 
+export interface ParsedPoint {
+  section: 'Weakness' | 'Question' | 'Limitation' | 'Thank You' | 'Other';
+  label: string; // "W1", "Q2", "L1", "Thank You"
+  text: string;
+  priority: string;
+}
+
 export interface ParsedReview {
   reviewer: string;
   rating: string | null;
   confidence: string | null;
   rawText: string;
   sections: Record<string, string>;
-  points: { section: string; text: string; priority: string }[];
+  strengths: string[]; // Extracted strength points for thank-you note
+  points: ParsedPoint[];
 }
 
 export function parseOpenReviewHTML(html: string): ParsedReview[] {
   const $ = cheerio.load(html);
   const reviews: ParsedReview[] = [];
 
-  // Strategy A: Structured DOM parsing using OpenReview's note structure
   $('div.note').each((_i, noteEl) => {
     const $note = $(noteEl);
 
-    // Check if this is an Official Review (not a meta-review or other note type)
     const invitationText = $note.find('.invitation').first().text().trim();
     if (!invitationText.includes('Official Review') && !invitationText.includes('Review')) {
-      // Check heading as fallback
       const headingText = $note.find('.heading h4 span').first().text().trim();
       if (!headingText.includes('Review')) return;
     }
 
-    // Extract reviewer name
     let reviewerName = $note.find('.signatures span').last().text().trim();
     if (!reviewerName) {
       const heading = $note.find('.heading h4 span').first().text().trim();
@@ -34,7 +38,6 @@ export function parseOpenReviewHTML(html: string): ParsedReview[] {
     }
     if (!reviewerName) reviewerName = `Reviewer ${reviews.length + 1}`;
 
-    // Extract fields
     const sections: Record<string, string> = {};
     let rating: string | null = null;
     let confidence: string | null = null;
@@ -44,9 +47,7 @@ export function parseOpenReviewHTML(html: string): ParsedReview[] {
       const fieldName = $(fieldEl).text().replace(/:$/, '').trim();
       const $parent = $(fieldEl).parent();
 
-      // Check for scalar value
       const scalarValue = $parent.find('span.note-content-value').first();
-      // Check for markdown rendered content
       const markdownValue = $parent.find('div.note-content-value.markdown-rendered').first();
 
       let value = '';
@@ -55,60 +56,37 @@ export function parseOpenReviewHTML(html: string): ParsedReview[] {
       } else if (scalarValue.length > 0) {
         value = scalarValue.text().trim();
       }
-
       if (!value) return;
 
       const fieldLower = fieldName.toLowerCase();
 
-      // Extract rating
       if (fieldLower.includes('overall') || fieldLower === 'rating' || fieldLower === 'recommendation') {
         rating = value;
-      }
-      // Extract confidence
-      else if (fieldLower === 'confidence') {
+      } else if (fieldLower === 'confidence') {
         confidence = value;
-      }
-      // Skip metadata fields
-      else if (
-        fieldLower.includes('code of conduct') ||
-        fieldLower.includes('llm') ||
-        fieldLower.includes('submission number') ||
-        fieldLower.includes('keywords') ||
-        fieldLower.includes('primary area') ||
-        fieldLower.includes('abstract') ||
-        fieldLower.includes('supplementary') ||
-        fieldLower.includes('ethics') ||
-        fieldLower.includes('reciprocal') ||
-        fieldLower.includes('verify author') ||
+      } else if (
+        fieldLower.includes('code of conduct') || fieldLower.includes('llm') ||
+        fieldLower.includes('submission number') || fieldLower.includes('keywords') ||
+        fieldLower.includes('primary area') || fieldLower.includes('abstract') ||
+        fieldLower.includes('supplementary') || fieldLower.includes('ethics') ||
+        fieldLower.includes('reciprocal') || fieldLower.includes('verify author') ||
         fieldLower.includes('proceedings')
       ) {
         return;
-      }
-      // Content sections
-      else {
+      } else {
         sections[fieldName] = value;
-        rawTextParts.push(`## ${fieldName}\n${htmlToPlainText($, value)}`);
+        rawTextParts.push(`## ${fieldName}\n${htmlToPlainText(value)}`);
       }
     });
 
     if (rawTextParts.length === 0 && Object.keys(sections).length === 0) return;
 
     const rawText = rawTextParts.join('\n\n');
+    const { points, strengths } = extractStructuredPoints(sections);
 
-    // Extract individual points from sections
-    const points = extractPoints($, sections);
-
-    reviews.push({
-      reviewer: reviewerName,
-      rating,
-      confidence,
-      rawText,
-      sections,
-      points,
-    });
+    reviews.push({ reviewer: reviewerName, rating, confidence, rawText, sections, strengths, points });
   });
 
-  // Strategy B: If no reviews found via DOM, try text-based extraction
   if (reviews.length === 0) {
     return parseOpenReviewTextBased(html);
   }
@@ -116,144 +94,198 @@ export function parseOpenReviewHTML(html: string): ParsedReview[] {
   return reviews;
 }
 
-function htmlToPlainText($: cheerio.CheerioAPI, html: string): string {
+function htmlToPlainText(html: string): string {
   const temp = cheerio.load(`<div id="temp">${html}</div>`);
   return temp('#temp').text().trim();
 }
 
-function extractPoints(
-  $: cheerio.CheerioAPI,
-  sections: Record<string, string>
-): { section: string; text: string; priority: string }[] {
-  const points: { section: string; text: string; priority: string }[] = [];
+/**
+ * Extract structured W/Q/L points from review sections.
+ * Strengths are collected separately for the thank-you note.
+ */
+function extractStructuredPoints(sections: Record<string, string>): {
+  points: ParsedPoint[];
+  strengths: string[];
+} {
+  const points: ParsedPoint[] = [];
+  const strengths: string[] = [];
+  let wCount = 0, qCount = 0, lCount = 0;
 
   for (const [sectionName, sectionHtml] of Object.entries(sections)) {
-    const $section = cheerio.load(`<div id="root">${sectionHtml}</div>`);
     const sectionLower = sectionName.toLowerCase();
+    const $section = cheerio.load(`<div id="root">${sectionHtml}</div>`);
+    const plainText = $section('#root').text().trim();
 
-    // Determine the type of section for categorization
-    let defaultSection = 'Other';
-    let defaultPriority = 'medium';
+    // Determine what type of content this section contains
+    const isStrengthSection = sectionLower.includes('strength') && !sectionLower.includes('weakness');
+    const isWeaknessSection = sectionLower.includes('weakness') || sectionLower.includes('concern');
+    const isQuestionSection = sectionLower.includes('question');
+    const isLimitationSection = sectionLower.includes('limitation');
+    const isCombined = sectionLower.includes('strength') && sectionLower.includes('weakness');
 
-    if (sectionLower.includes('strength')) {
-      defaultSection = 'Strength';
-      defaultPriority = 'low';
-    } else if (sectionLower.includes('weakness')) {
-      defaultSection = 'Weakness';
-      defaultPriority = 'high';
-    } else if (sectionLower.includes('question')) {
-      defaultSection = 'Question';
-      defaultPriority = 'medium';
-    } else if (sectionLower.includes('limitation')) {
-      defaultSection = 'Suggestion';
-      defaultPriority = 'medium';
-    } else if (sectionLower.includes('suggestion') || sectionLower.includes('minor')) {
-      defaultSection = 'Minor Issue';
-      defaultPriority = 'low';
+    if (isCombined) {
+      // Combined "Strengths And Weaknesses" field - split by subsection headers
+      let currentType: 'strength' | 'weakness' | 'question' | 'limitation' | 'other' = 'other';
+
+      const elements = $section('#root').children().toArray();
+      let currentItems: string[] = [];
+
+      const flushItems = () => {
+        for (const item of currentItems) {
+          if (!item || item.length < 15) continue;
+          if (currentType === 'strength') {
+            strengths.push(item);
+          } else if (currentType === 'weakness' || currentType === 'other') {
+            wCount++;
+            points.push({ section: 'Weakness', label: `W${wCount}`, text: item, priority: 'high' });
+          } else if (currentType === 'question') {
+            qCount++;
+            points.push({ section: 'Question', label: `Q${qCount}`, text: item, priority: 'medium' });
+          } else if (currentType === 'limitation') {
+            lCount++;
+            points.push({ section: 'Limitation', label: `L${lCount}`, text: item, priority: 'medium' });
+          }
+        }
+        currentItems = [];
+      };
+
+      for (const el of elements) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const tag = (el as any).name || '';
+        const text = $section(el).text().trim();
+
+        if (tag === 'h2' || tag === 'h3') {
+          flushItems();
+          const headerLower = text.toLowerCase();
+          if (headerLower.includes('strength')) currentType = 'strength';
+          else if (headerLower.includes('weakness') || headerLower.includes('concern')) currentType = 'weakness';
+          else if (headerLower.includes('question')) currentType = 'question';
+          else if (headerLower.includes('limitation') || headerLower.includes('minor')) currentType = 'limitation';
+          else currentType = 'other';
+          continue;
+        }
+
+        if (tag === 'ul' || tag === 'ol') {
+          $section(el).children('li').each((_j, li) => {
+            const liText = $section(li).text().trim();
+            if (liText && liText.length > 15) currentItems.push(liText);
+          });
+        } else if (tag === 'p') {
+          if (text && text.length > 20) currentItems.push(text);
+        }
+      }
+      flushItems();
+      continue;
     }
 
-    // Parse subsections within combined "Strengths And Weaknesses" fields
-    let currentSubSection = defaultSection;
-    let currentPriority = defaultPriority;
+    // Single-type section
+    const items = extractListItems($section, plainText);
 
-    // Look for h2/h3 subsection headers
-    const subsectionMap: { header: string; section: string; priority: string }[] = [];
-    $section('h2, h3').each((_i, el) => {
-      const text = $(el).text().trim().toLowerCase();
-      let sec = defaultSection;
-      let pri = defaultPriority;
-      if (text.includes('strength')) { sec = 'Strength'; pri = 'low'; }
-      else if (text.includes('weakness') || text.includes('concern')) { sec = 'Weakness'; pri = 'high'; }
-      else if (text.includes('question')) { sec = 'Question'; pri = 'medium'; }
-      else if (text.includes('suggestion') || text.includes('recommendation')) { sec = 'Suggestion'; pri = 'medium'; }
-      else if (text.includes('minor') || text.includes('typo') || text.includes('nit')) { sec = 'Minor Issue'; pri = 'low'; }
-      subsectionMap.push({ header: $(el).text().trim(), section: sec, priority: pri });
-    });
-
-    // Extract list items as individual points
-    const processedTexts = new Set<string>();
-
-    // Walk through elements in order
-    let currentIdx = 0;
-    $section('#root').children().each((_i, el) => {
-      const tagName = el.type === 'tag' ? el.name : '';
-
-      // Update current section if we hit a header
-      if (tagName === 'h2' || tagName === 'h3') {
-        if (currentIdx < subsectionMap.length) {
-          currentSubSection = subsectionMap[currentIdx].section;
-          currentPriority = subsectionMap[currentIdx].priority;
-          currentIdx++;
-        }
-        return;
+    if (isStrengthSection) {
+      for (const item of items) {
+        if (item.length > 15) strengths.push(item);
       }
-
-      // Process list items
-      if (tagName === 'ul' || tagName === 'ol') {
-        $(el).children('li').each((_j, li) => {
-          const text = $(li).text().trim();
-          if (text && text.length > 10 && !processedTexts.has(text)) {
-            processedTexts.add(text);
-            points.push({
-              section: currentSubSection,
-              text,
-              priority: currentPriority,
-            });
-          }
-        });
-        return;
-      }
-
-      // Process paragraphs as points (if they seem like substantive points)
-      if (tagName === 'p') {
-        const text = $(el).text().trim();
-        if (text && text.length > 20 && !processedTexts.has(text)) {
-          // Check if it starts with a number/bullet indicator
-          const looksLikePoint = /^(\d+[\.\)]\s|[-*]\s|•\s)/.test(text) || text.length > 40;
-          if (looksLikePoint) {
-            processedTexts.add(text);
-            points.push({
-              section: currentSubSection,
-              text,
-              priority: currentPriority,
-            });
-          }
+    } else if (isQuestionSection) {
+      for (const item of items) {
+        if (item.length > 15) {
+          qCount++;
+          points.push({ section: 'Question', label: `Q${qCount}`, text: item, priority: 'medium' });
         }
       }
-    });
-
-    // If no list items found, split the entire section text by numbered patterns
-    if (points.filter(p => p.section !== 'Strength').length === 0) {
-      const plainText = $section('#root').text().trim();
-      const numberedPoints = plainText.split(/(?=\d+[\.\)]\s)/);
-      for (const pt of numberedPoints) {
-        const text = pt.trim();
-        if (text && text.length > 20 && !processedTexts.has(text)) {
-          processedTexts.add(text);
-          points.push({
-            section: currentSubSection,
-            text,
-            priority: currentPriority,
-          });
+    } else if (isLimitationSection) {
+      for (const item of items) {
+        if (item.length > 15) {
+          lCount++;
+          points.push({ section: 'Limitation', label: `L${lCount}`, text: item, priority: 'medium' });
+        }
+      }
+    } else if (isWeaknessSection) {
+      for (const item of items) {
+        if (item.length > 15) {
+          wCount++;
+          points.push({ section: 'Weakness', label: `W${wCount}`, text: item, priority: 'high' });
+        }
+      }
+    } else {
+      // "Summary", "Soundness", etc. - skip or treat as weakness if substantive
+      // Only extract if there are numbered/bulleted points suggesting actionable items
+      for (const item of items) {
+        if (item.length > 40 && /\b(should|could|lack|miss|unclear|confus|concern|issue|problem|limit)/i.test(item)) {
+          wCount++;
+          points.push({ section: 'Weakness', label: `W${wCount}`, text: item, priority: 'medium' });
         }
       }
     }
   }
 
-  return points;
+  // If no points were extracted, try splitting raw text
+  if (points.length === 0) {
+    const allText = Object.values(sections).map(h => htmlToPlainText(h)).join('\n');
+    const numbered = allText.split(/(?=\d+[\.\)]\s)/);
+    for (const item of numbered) {
+      const text = item.trim();
+      if (text.length > 30) {
+        wCount++;
+        points.push({ section: 'Weakness', label: `W${wCount}`, text, priority: 'medium' });
+      }
+    }
+  }
+
+  return { points, strengths };
+}
+
+function extractListItems($section: cheerio.CheerioAPI, plainText: string): string[] {
+  const items: string[] = [];
+  const seen = new Set<string>();
+
+  // Try list items first
+  $section('li').each((_i, el) => {
+    const text = $section(el).text().trim();
+    if (text && text.length > 15 && !seen.has(text)) {
+      seen.add(text);
+      items.push(text);
+    }
+  });
+
+  if (items.length > 0) return items;
+
+  // Try paragraphs
+  $section('p').each((_i, el) => {
+    const text = $section(el).text().trim();
+    if (text && text.length > 20 && !seen.has(text)) {
+      seen.add(text);
+      items.push(text);
+    }
+  });
+
+  if (items.length > 0) return items;
+
+  // Fallback: split by numbered patterns
+  const numbered = plainText.split(/(?=\d+[\.\)]\s)/);
+  for (const item of numbered) {
+    const text = item.trim();
+    if (text && text.length > 20 && !seen.has(text)) {
+      seen.add(text);
+      items.push(text);
+    }
+  }
+
+  // Last resort: return the whole text as one item
+  if (items.length === 0 && plainText.length > 30) {
+    items.push(plainText);
+  }
+
+  return items;
 }
 
 function parseOpenReviewTextBased(html: string): ParsedReview[] {
-  // Fallback text-based parsing
   const $ = cheerio.load(html);
   const bodyText = $('body').text();
-
   const reviews: ParsedReview[] = [];
   const reviewBlocks = bodyText.split(/(?=Official Review.*?by\s+Reviewer\s+\w+)/i);
 
   for (const block of reviewBlocks) {
     if (block.length < 100) continue;
-
     const reviewerMatch = block.match(/by\s+(Reviewer\s+\w+)/i);
     if (!reviewerMatch) continue;
 
@@ -266,11 +298,8 @@ function parseOpenReviewTextBased(html: string): ParsedReview[] {
       confidence: confidenceMatch?.[1]?.trim() || null,
       rawText: block.trim(),
       sections: { 'Full Review': block.trim() },
-      points: [{
-        section: 'Other',
-        text: block.trim().slice(0, 500),
-        priority: 'medium',
-      }],
+      strengths: [],
+      points: [{ section: 'Weakness', label: 'W1', text: block.trim().slice(0, 500), priority: 'medium' }],
     });
   }
 
@@ -286,7 +315,6 @@ export function openReviewHtmlToMarkdown(html: string): string {
     const heading = $note.find('.heading h4 span').first().text().trim();
     if (!heading) return;
 
-    // Only process review notes
     const invitationText = $note.find('.invitation').first().text().trim();
     if (!invitationText.includes('Review')) return;
 

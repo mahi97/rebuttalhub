@@ -5,6 +5,8 @@ import {
   draftResponsePrompt,
   IMPROVE_DRAFT_SYSTEM,
   improveDraftPrompt,
+  DRAFT_THANK_YOU_SYSTEM,
+  draftThankYouPrompt,
 } from '@/lib/llm/prompts';
 import { NextResponse } from 'next/server';
 
@@ -24,25 +26,44 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Please set your Anthropic API key in Settings' }, { status: 400 });
     }
 
-    const { pointId, pointText, sectionName, paperContext, currentDraft, mode } = await request.json();
+    const { pointId, pointText, sectionName, label, paperContext, currentDraft, mode, projectId, reviewerName } = await request.json();
+
+    // Fetch project template and guidelines
+    let template = '';
+    let guidelines = '';
+    if (projectId) {
+      const { data: project } = await supabase
+        .from('projects')
+        .select('rebuttal_template, guidelines')
+        .eq('id', projectId)
+        .single();
+      template = project?.rebuttal_template || '';
+      guidelines = project?.guidelines || '';
+    }
 
     let draft: string;
 
-    if (mode === 'improve' && currentDraft) {
+    if (sectionName === 'Thank You') {
+      // Draft thank-you note from strengths
+      draft = await callClaude(
+        profile.anthropic_api_key,
+        DRAFT_THANK_YOU_SYSTEM,
+        draftThankYouPrompt(reviewerName || 'the reviewer', pointText, guidelines)
+      );
+    } else if (mode === 'improve' && currentDraft) {
       draft = await callClaude(
         profile.anthropic_api_key,
         IMPROVE_DRAFT_SYSTEM,
-        improveDraftPrompt(pointText, currentDraft)
+        improveDraftPrompt(pointText, currentDraft, guidelines)
       );
     } else {
       draft = await callClaude(
         profile.anthropic_api_key,
         DRAFT_RESPONSE_SYSTEM,
-        draftResponsePrompt(paperContext || '', sectionName, pointText)
+        draftResponsePrompt(paperContext || '', sectionName, label || '', pointText, template, guidelines)
       );
     }
 
-    // Save draft to database
     if (pointId) {
       await supabase
         .from('review_points')

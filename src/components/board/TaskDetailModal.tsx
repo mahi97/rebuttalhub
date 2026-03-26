@@ -58,7 +58,10 @@ export default function TaskDetailModal({
       pointId: point.id,
       pointText: point.point_text,
       sectionName: point.section,
+      label: point.label,
       paperContext: paperContext || '',
+      projectId: point.project_id,
+      reviewerName: point.review?.reviewer_name,
       mode: 'new',
     });
     if (result) setDraftResponse(result.draft);
@@ -69,7 +72,10 @@ export default function TaskDetailModal({
       pointId: point.id,
       pointText: point.point_text,
       sectionName: point.section,
+      label: point.label,
       currentDraft: draftResponse,
+      projectId: point.project_id,
+      reviewerName: point.review?.reviewer_name,
       mode: 'improve',
     });
     if (result) setDraftResponse(result.draft);
@@ -96,10 +102,10 @@ export default function TaskDetailModal({
         <div className="flex items-start justify-between p-5 border-b border-[var(--border)]">
           <div className="flex items-center gap-2">
             <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${sectionClass}`}>
-              {point.section}
+              {point.label || point.section}
             </span>
             <span className="text-xs text-[var(--muted-foreground)]">
-              {point.review?.reviewer_name || 'Reviewer'}
+              {point.section} &middot; {point.review?.reviewer_name || 'Reviewer'}
             </span>
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/10">

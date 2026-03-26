@@ -4,47 +4,77 @@ export function parseReviewsPrompt(htmlText: string): string {
   return `Extract all individual reviewer comments from this OpenReview page content. For each review identify:
 - Reviewer name/ID
 - Rating and confidence
-- Each individual point categorized as: Strength, Weakness, Question, Suggestion, Minor Issue
-- Priority: critical (fundamental flaw), high (weakness), medium (question/suggestion), low (minor/strength)
+- Strengths (positive points) as a separate list
+- Each individual actionable point categorized as: Weakness (W), Question (Q), Limitation (L)
+- Label each point: W1, W2, Q1, Q2, L1, etc. in order
+- Priority: critical (fundamental flaw), high (weakness), medium (question/limitation), low (minor)
 
-Return ONLY valid JSON in this format:
-[{"reviewer": "Reviewer ABC", "rating": "5", "confidence": "3", "points": [{"section": "Weakness", "text": "The paper lacks...", "priority": "high"}]}]
+Return ONLY valid JSON:
+[{"reviewer": "Reviewer ABC", "rating": "5", "confidence": "3", "strengths": ["strength 1", "strength 2"], "points": [{"section": "Weakness", "label": "W1", "text": "...", "priority": "high"}]}]
 
 Content:
 ${htmlText.slice(0, 50000)}`;
 }
 
-export const DRAFT_RESPONSE_SYSTEM = `You are an expert academic author writing a rebuttal to peer reviewers. Be professional, specific, and constructive. Write concise responses under 200 words.`;
+export const DRAFT_THANK_YOU_SYSTEM = `You are an expert academic author writing a thank-you note to a peer reviewer. Be professional, genuine, and specific. Reference the reviewer's actual positive comments. Do NOT be sycophantic.`;
+
+export function draftThankYouPrompt(
+  reviewerName: string,
+  strengths: string,
+  guidelines: string
+): string {
+  return `Write a thank-you note for ${reviewerName} based on the strengths they identified.
+
+Reviewer's positive points:
+${strengths}
+
+${guidelines ? `Guidelines:\n${guidelines}\n` : ''}
+Rules:
+- 2-4 sentences maximum
+- Reference specific positive points they raised
+- Mention how you reflect on their concerns
+- Do NOT use hollow phrases like "We are grateful for the valuable review"
+- Be genuine and specific`;
+}
+
+export const DRAFT_RESPONSE_SYSTEM = `You are an expert academic author writing a rebuttal to peer reviewers. Be professional, specific, and constructive. Write concise responses.`;
 
 export function draftResponsePrompt(
   paperContext: string,
   sectionName: string,
-  pointText: string
+  label: string,
+  pointText: string,
+  template: string,
+  guidelines: string
 ): string {
   return `Draft a rebuttal response to this reviewer point.
 
 Paper context: ${paperContext.slice(0, 3000)}
 
-Reviewer section: ${sectionName}
+Point label: ${label}
+Section: ${sectionName}
 Reviewer comment: "${pointText}"
 
-Guidelines:
-- Acknowledge the reviewer's concern respectfully
+${template ? `Response template format:\n${template}\n` : ''}
+${guidelines ? `Writing guidelines:\n${guidelines}\n` : ''}
+Rules:
 - Address the specific issue directly
-- Reference concrete evidence, experiments, or revisions you will make
+- Reference concrete evidence, experiments, or revisions
 - If the reviewer is mistaken, politely clarify with evidence
-- Keep under 200 words
-- Use professional academic tone`;
+- Cite specific locations (Table X, §Y, Appendix Z)
+- Simple answer: 2-4 sentences. Substantive criticism: 1-3 paragraphs max
+- Professional academic tone, no filler`;
 }
 
 export const IMPROVE_DRAFT_SYSTEM = `You are editing an academic rebuttal response. Improve clarity, strengthen arguments, and maintain professional tone.`;
 
-export function improveDraftPrompt(pointText: string, currentDraft: string): string {
+export function improveDraftPrompt(pointText: string, currentDraft: string, guidelines: string): string {
   return `Improve this draft rebuttal response:
 
 Original reviewer comment: "${pointText}"
 Current draft: "${currentDraft}"
 
+${guidelines ? `Guidelines:\n${guidelines}\n` : ''}
 Make it more concise, professional, and compelling. Fix any grammatical issues. Keep the same key arguments but strengthen them.`;
 }
 
@@ -54,27 +84,36 @@ export function summarizePrompt(reviewText: string): string {
   return reviewText.slice(0, 10000);
 }
 
-export const COMPILE_REBUTTAL_SYSTEM = `You are compiling individual rebuttal responses into a polished, submission-ready rebuttal document. Be concise and professional.`;
+export const COMPILE_REBUTTAL_SYSTEM = `You are compiling individual rebuttal responses into a polished, submission-ready rebuttal document. Follow the template exactly.`;
 
 export function compileRebuttalPrompt(
-  responses: { reviewer: string; section: string; point: string; response: string }[],
+  reviewerName: string,
+  thankYouNote: string,
+  responses: { label: string; section: string; point: string; response: string }[],
+  template: string,
+  guidelines: string,
   charLimit: number
 ): string {
-  return `Compile these responses into a complete rebuttal document.
+  return `Compile these responses into a rebuttal for ${reviewerName}.
 
-Character limit: ${charLimit} characters (STRICT - the submission system will reject longer responses)
+Character limit: ${charLimit} characters (STRICT)
 
-Responses by reviewer:
-${JSON.stringify(responses, null, 2)}
+Thank-you note: ${thankYouNote || '(not yet written)'}
 
-Format:
-- Clear header for each reviewer
-- Number each response matching the reviewer's points
-- Professional transitions between responses
-- If over the character limit, condense while preserving all key arguments
-- End with a brief summary of all changes/revisions promised
+Responses:
+${responses.map(r => `${r.label} [${r.section}]: "${r.point}"\nResponse: ${r.response}`).join('\n\n---\n\n')}
 
-Output format: Markdown`;
+Template format to follow:
+${template}
+
+${guidelines ? `Writing guidelines:\n${guidelines}\n` : ''}
+Rules:
+- Start with the thank-you note
+- Then each response in order (W1, W2, ..., Q1, Q2, ..., L1, L2, ...)
+- Use the exact label format from the template (e.g., > **W1:** ... then **Response W1:** ...)
+- Separate each with ---
+- Stay under ${charLimit} characters
+- Output: Markdown`;
 }
 
 export const REDUCE_LENGTH_SYSTEM = `You are condensing an academic rebuttal to meet a strict character limit. Preserve all key arguments and evidence while removing redundancy.`;
@@ -95,5 +134,5 @@ Condense to under ${charLimit} characters. Prioritize:
 2. Keep all promises of new experiments/revisions
 3. Remove pleasantries and redundant thank-yous
 4. Shorten transitions
-5. Combine similar points across reviewers`;
+5. Combine similar points`;
 }
