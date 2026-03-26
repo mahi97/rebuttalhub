@@ -11,7 +11,7 @@ export default function BoardPage() {
   const params = useParams();
   const projectId = params.id as string;
   const { members, files } = useProject(projectId);
-  const { reviews, reviewPoints, loading, refetch, updatePoint } = useReviews(projectId);
+  const { reviews, reviewPoints, archivedReviewPoints, loading, refetch, updatePoint } = useReviews(projectId);
 
   const handleRealtimeUpdate = useCallback(() => {
     refetch();
@@ -46,6 +46,7 @@ export default function BoardPage() {
 
       <KanbanBoard
         points={reviewPoints}
+        archivedPoints={archivedReviewPoints}
         members={members}
         reviews={reviews.map((r) => ({ id: r.id, reviewer_name: r.reviewer_name }))}
         onUpdatePoint={updatePoint}

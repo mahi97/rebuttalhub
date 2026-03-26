@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { TASK_STATUSES, type ReviewPoint, type TaskStatus } from '@/types';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -44,4 +45,21 @@ export function getInitials(name: string): string {
 
 export function generateInviteCode(): string {
   return Math.random().toString(36).substring(2, 10);
+}
+
+export function getTaskStatusProgressWeight(status: TaskStatus): number {
+  const statusIndex = TASK_STATUSES.findIndex((taskStatus) => taskStatus.key === status);
+  if (statusIndex <= 0) return 0;
+
+  return statusIndex / (TASK_STATUSES.length - 1);
+}
+
+export function calculateWeightedTaskProgress(points: Array<Pick<ReviewPoint, 'status'>>): number {
+  if (points.length === 0) return 0;
+
+  const weightedProgress = points.reduce((total, point) => {
+    return total + getTaskStatusProgressWeight(point.status);
+  }, 0);
+
+  return Math.round((weightedProgress / points.length) * 100);
 }

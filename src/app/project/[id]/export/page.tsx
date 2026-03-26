@@ -9,7 +9,7 @@ export default function ExportPage() {
   const params = useParams();
   const projectId = params.id as string;
   const { project, loading: projectLoading } = useProject(projectId);
-  const { reviews, reviewPoints, loading: reviewsLoading } = useReviews(projectId);
+  const { reviews, reviewPoints, loading: reviewsLoading, refetch } = useReviews(projectId);
 
   if (projectLoading || reviewsLoading) {
     return (
@@ -30,7 +30,7 @@ export default function ExportPage() {
         </p>
       </div>
 
-      <RebuttalCompiler reviews={reviews} points={reviewPoints} project={project} />
+      <RebuttalCompiler reviews={reviews} points={reviewPoints} project={project} onRefresh={refetch} />
     </div>
   );
 }

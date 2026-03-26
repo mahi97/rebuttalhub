@@ -70,6 +70,10 @@ export interface ReviewPoint {
   final_response: string | null;
   notes: string | null;
   sort_order: number;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  archived_reason?: 'deleted' | 'merged' | null;
+  archived_metadata?: Record<string, unknown> | null;
   updated_at: string;
   created_at: string;
   review?: Review;
@@ -102,6 +106,7 @@ export interface Comment {
   review_point_id: string;
   project_id: string;
   user_id: string;
+  parent_comment_id: string | null;
   content: string;
   resolved: boolean;
   resolved_by: string | null;
@@ -117,6 +122,39 @@ export interface ActivityLog {
   user_id: string;
   action: string;
   details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RebuttalVersion {
+  id: string;
+  project_id: string;
+  review_id: string | null;
+  reviewer_name: string | null;
+  scope: 'reviewer' | 'all';
+  content: string;
+  metadata: Record<string, unknown> | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RebuttalVersionChange {
+  pointId: string;
+  reviewId: string;
+  reviewerName: string | null;
+  label: string;
+  previousFinalResponse: string | null;
+  nextFinalResponse: string;
+}
+
+export interface RebuttalVersionApplication {
+  id: string;
+  version_id: string;
+  project_id: string;
+  applied_by: string | null;
+  change_set: RebuttalVersionChange[];
+  reverted_at: string | null;
+  reverted_by: string | null;
   created_at: string;
 }
 

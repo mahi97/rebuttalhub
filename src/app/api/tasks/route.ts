@@ -34,6 +34,11 @@ function buildMergedLabel(labels: Array<string | null | undefined>) {
   ).join('+');
 }
 
+function buildSplitLabel(label: string | null | undefined, section: string | null | undefined) {
+  const base = label?.trim() || section?.trim() || 'Task';
+  return base.endsWith('b') ? `${base}2` : `${base}b`;
+}
+
 async function getAuthorizedClients() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -89,7 +94,16 @@ export async function PATCH(request: Request) {
 
     const { supabase, mutationClient } = auth;
 
-    const { action, taskIds, targetId, primaryId, secondaryId } = await request.json();
+    const {
+      action,
+      taskIds,
+      targetId,
+      primaryId,
+      secondaryId,
+      originalPointText,
+      newPointText,
+      newLabel,
+    } = await request.json();
 
     if (action === 'merge') {
       const mergeIds = Array.from(
@@ -105,7 +119,8 @@ export async function PATCH(request: Request) {
       const { data: tasks, error: tasksError } = await supabase
         .from('review_points')
         .select('*')
-        .in('id', mergeIds);
+        .in('id', mergeIds)
+        .is('deleted_at', null);
 
       if (tasksError) {
         return NextResponse.json({ error: tasksError.message }, { status: 500 });
@@ -160,6 +175,7 @@ export async function PATCH(request: Request) {
         .from('review_points')
         .update(mergedPayload)
         .eq('id', primaryTask.id)
+        .is('deleted_at', null)
         .select('*')
         .single();
 
@@ -183,6 +199,7 @@ export async function PATCH(request: Request) {
         .from('review_points')
         .delete()
         .eq('id', secondaryTask.id)
+        .is('deleted_at', null)
         .select('id')
         .maybeSingle();
 
@@ -205,35 +222,89 @@ export async function PATCH(request: Request) {
       });
 
     } else if (action === 'split') {
-      // Split a task into two
       if (!targetId) return NextResponse.json({ error: 'targetId required' }, { status: 400 });
 
       const { data: task } = await supabase
         .from('review_points')
         .select('*')
         .eq('id', targetId)
+        .is('deleted_at', null)
         .single();
 
       if (!task) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
 
-      // Create a new task with empty content, user will fill in
-      const { data: newTask, error } = await supabase
+      if (!originalPointText?.trim() || !newPointText?.trim()) {
+        return NextResponse.json(
+          { error: 'Both the original task description and the new task description are required' },
+          { status: 400 }
+        );
+      }
+
+      const normalizedOriginalText = originalPointText.trim();
+      const normalizedNewText = newPointText.trim();
+      const normalizedNewLabel = (newLabel?.trim() || buildSplitLabel(task.label, task.section)).slice(0, 50);
+
+      const { error: updateError } = await mutationClient
+        .from('review_points')
+        .update({
+          point_text: normalizedOriginalText,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', targetId)
+        .is('deleted_at', null);
+
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
+
+      const { data: newTask, error } = await mutationClient
         .from('review_points')
         .insert({
           review_id: task.review_id,
           project_id: task.project_id,
           section: task.section,
-          label: `${task.label}b`,
-          point_text: '(split from ' + task.label + ')',
+          label: normalizedNewLabel,
+          point_text: normalizedNewText,
           priority: task.priority,
+          assigned_to: task.assigned_to,
           status: 'not_started',
           sort_order: task.sort_order + 1,
+          draft_response: `> **${normalizedNewLabel}:** *${normalizedNewText.slice(0, 80)}${normalizedNewText.length > 80 ? '...' : ''}*\n\n**Response ${normalizedNewLabel}:** `,
         })
         .select()
         .single();
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ success: true, newTask });
+    } else if (action === 'restore') {
+      if (!targetId) return NextResponse.json({ error: 'targetId required' }, { status: 400 });
+
+      const { data: archivedTask, error: taskError } = await supabase
+        .from('review_points')
+        .select('id')
+        .eq('id', targetId)
+        .eq('archived_reason', 'deleted')
+        .not('deleted_at', 'is', null)
+        .maybeSingle();
+
+      if (taskError) return NextResponse.json({ error: taskError.message }, { status: 500 });
+      if (!archivedTask) return NextResponse.json({ error: 'Archived task not found' }, { status: 404 });
+
+      const { data: restoredTask, error: restoreError } = await mutationClient
+        .from('review_points')
+        .update({
+          deleted_at: null,
+          deleted_by: null,
+          archived_reason: null,
+          archived_metadata: {},
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', targetId)
+        .select('*')
+        .single();
+
+      if (restoreError) return NextResponse.json({ error: restoreError.message }, { status: 500 });
+      return NextResponse.json({ success: true, task: restoredTask });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
@@ -248,7 +319,7 @@ export async function DELETE(request: Request) {
     const auth = await getAuthorizedClients();
     if (auth.error) return auth.error;
 
-    const { supabase, mutationClient } = auth;
+    const { supabase, mutationClient, user } = auth;
 
     const { taskId } = await request.json();
     if (!taskId) return NextResponse.json({ error: 'taskId required' }, { status: 400 });
@@ -257,22 +328,30 @@ export async function DELETE(request: Request) {
       .from('review_points')
       .select('id')
       .eq('id', taskId)
+      .is('deleted_at', null)
       .maybeSingle();
 
     if (taskError) return NextResponse.json({ error: taskError.message }, { status: 500 });
     if (!task) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
 
-    const { data: deletedTask, error } = await mutationClient
+    const { data: archivedTask, error } = await mutationClient
       .from('review_points')
-      .delete()
+      .update({
+        deleted_at: new Date().toISOString(),
+        deleted_by: user.id,
+        archived_reason: 'deleted',
+        archived_metadata: {},
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', taskId)
+      .is('deleted_at', null)
       .select('id')
       .maybeSingle();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if (!deletedTask) {
+    if (!archivedTask) {
       return NextResponse.json(
-        { error: 'Task could not be deleted. Check review_points delete permissions.' },
+        { error: 'Task could not be archived.' },
         { status: 500 }
       );
     }

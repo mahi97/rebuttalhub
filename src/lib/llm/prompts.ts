@@ -138,3 +138,58 @@ Condense to under ${charLimit} characters. Prioritize:
 4. Shorten transitions
 5. Combine similar points`;
 }
+
+export const POLISH_REBUTTAL_SYSTEM = `You are editing academic rebuttal text. Preserve factual content and markdown structure unless the user explicitly asks for structural changes. Return only the revised text for the requested scope.`;
+
+export function polishRebuttalPrompt({
+  scope,
+  reviewerName,
+  label,
+  pointText,
+  currentText,
+  template,
+  guidelines,
+  charLimit,
+  changeTypes,
+  feedback,
+  previousAttempt,
+}: {
+  scope: 'all_reviewers' | 'reviewer' | 'response';
+  reviewerName?: string;
+  label?: string;
+  pointText?: string;
+  currentText: string;
+  template?: string;
+  guidelines?: string;
+  charLimit?: number;
+  changeTypes?: string[];
+  feedback?: string;
+  previousAttempt?: string;
+}): string {
+  const targetDescription = scope === 'all_reviewers'
+    ? 'the full combined rebuttal across all reviewers'
+    : scope === 'reviewer'
+      ? `the rebuttal for ${reviewerName || 'this reviewer'}`
+      : `only the response body for ${label || 'this point'} for ${reviewerName || 'this reviewer'}`;
+
+  const outputRule = scope === 'response'
+    ? `Output ONLY the revised response body for ${label || 'the selected point'}. Do not include the blockquote, heading, or markdown label wrapper.`
+    : 'Output ONLY the full revised markdown rebuttal text.';
+
+  return `Revise ${targetDescription}.
+
+Requested change types:
+${(changeTypes && changeTypes.length > 0 ? changeTypes : ['general polish']).map((change) => `- ${change}`).join('\n')}
+
+${reviewerName ? `Reviewer: ${reviewerName}\n` : ''}${label ? `Point label: ${label}\n` : ''}${pointText ? `Original reviewer point:\n${pointText}\n\n` : ''}
+Current text to revise:
+${currentText}
+
+${template ? `Preferred template:\n${template}\n\n` : ''}${guidelines ? `Writing guidelines:\n${guidelines}\n\n` : ''}${typeof charLimit === 'number' ? `Stay within ${charLimit} characters when possible.\n\n` : ''}${previousAttempt ? `Previous proposed revision:\n${previousAttempt}\n\n` : ''}${feedback ? `User feedback for this retry:\n${feedback}\n\n` : ''}
+Rules:
+- Preserve all concrete claims, experiments, citations, and promised revisions unless the user feedback asks to change them.
+- Keep labels such as W1/Q2/L3 and reviewer section boundaries intact unless the request is for a single response body.
+- Improve clarity, flow, tone, and formatting according to the requested change types.
+- Do not add explanations, notes, or commentary outside the revised text.
+- ${outputRule}`;
+}

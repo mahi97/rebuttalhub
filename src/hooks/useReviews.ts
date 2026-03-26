@@ -7,6 +7,7 @@ import type { Review, ReviewPoint } from '@/types';
 export function useReviews(projectId: string) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewPoints, setReviewPoints] = useState<ReviewPoint[]>([]);
+  const [archivedReviewPoints, setArchivedReviewPoints] = useState<ReviewPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const fetchedRef = useRef(false);
 
@@ -26,16 +27,30 @@ export function useReviews(projectId: string) {
       .from('review_points')
       .select('*, review:reviews(*)')
       .eq('project_id', projectId)
+      .is('deleted_at', null)
       .order('sort_order', { ascending: true });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setReviewPoints((data as any) || []);
   }, [projectId]);
 
+  const fetchArchivedPoints = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from('review_points')
+      .select('*, review:reviews(*)')
+      .eq('project_id', projectId)
+      .eq('archived_reason', 'deleted')
+      .not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setArchivedReviewPoints((data as any) || []);
+  }, [projectId]);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([fetchReviews(), fetchPoints()]);
+    await Promise.all([fetchReviews(), fetchPoints(), fetchArchivedPoints()]);
     setLoading(false);
-  }, [fetchReviews, fetchPoints]);
+  }, [fetchReviews, fetchPoints, fetchArchivedPoints]);
 
   useEffect(() => {
     fetchedRef.current = false;
@@ -58,20 +73,21 @@ export function useReviews(projectId: string) {
       const { error } = await supabase
         .from('review_points')
         .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', pointId);
+        .eq('id', pointId)
+        .is('deleted_at', null);
 
       if (error) {
         // Revert on error
-        await fetchPoints();
+        await fetchAll();
         throw error;
       }
     },
-    [fetchPoints]
+    [fetchAll]
   );
 
   const refetch = useCallback(async () => {
-    await Promise.all([fetchReviews(), fetchPoints()]);
-  }, [fetchReviews, fetchPoints]);
+    await Promise.all([fetchReviews(), fetchPoints(), fetchArchivedPoints()]);
+  }, [fetchReviews, fetchPoints, fetchArchivedPoints]);
 
-  return { reviews, reviewPoints, loading, refetch, updatePoint };
+  return { reviews, reviewPoints, archivedReviewPoints, loading, refetch, updatePoint };
 }

@@ -14,9 +14,10 @@ import {
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import type { Project, Profile } from '@/types';
+import { calculateWeightedTaskProgress } from '@/lib/utils';
 
 export default function DashboardPage() {
-  const [projects, setProjects] = useState<(Project & { memberCount?: number; reviewCount?: number; pointsTotal?: number; pointsDone?: number })[]>([]);
+  const [projects, setProjects] = useState<(Project & { memberCount?: number; reviewCount?: number; pointsTotal?: number; pointsProgress?: number })[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -64,7 +65,7 @@ export default function DashboardPage() {
         const [{ count: memberCount }, { count: reviewCount }, { data: pointsData }] = await Promise.all([
           supabase.from('project_members').select('*', { count: 'exact', head: true }).eq('project_id', p.id),
           supabase.from('reviews').select('*', { count: 'exact', head: true }).eq('project_id', p.id),
-          supabase.from('review_points').select('status').eq('project_id', p.id),
+          supabase.from('review_points').select('status').eq('project_id', p.id).is('deleted_at', null),
         ]);
 
         return {
@@ -72,7 +73,7 @@ export default function DashboardPage() {
           memberCount: memberCount || 0,
           reviewCount: reviewCount || 0,
           pointsTotal: pointsData?.length || 0,
-          pointsDone: pointsData?.filter((pt) => pt.status === 'done').length || 0,
+          pointsProgress: calculateWeightedTaskProgress(pointsData || []),
         };
       })
     );

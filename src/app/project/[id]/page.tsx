@@ -6,6 +6,7 @@ import { useReviews } from '@/hooks/useReviews';
 import FileUploader from '@/components/project/FileUploader';
 import { FileText, MessageSquare, Users, CheckCircle, AlertCircle } from 'lucide-react';
 import { TASK_STATUSES } from '@/types';
+import { calculateWeightedTaskProgress } from '@/lib/utils';
 
 export default function ProjectOverviewPage() {
   const params = useParams();
@@ -38,8 +39,7 @@ export default function ProjectOverviewPage() {
     count: reviewPoints.filter((p) => p.status === s.key).length,
   }));
 
-  const doneCount = reviewPoints.filter((p) => p.status === 'done').length;
-  const progress = reviewPoints.length > 0 ? Math.round((doneCount / reviewPoints.length) * 100) : 0;
+  const progress = calculateWeightedTaskProgress(reviewPoints);
 
   return (
     <div className="p-6 max-w-5xl">
@@ -77,7 +77,7 @@ export default function ProjectOverviewPage() {
         <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4">
           <div className="flex items-center gap-2 text-[var(--muted-foreground)] mb-1">
             <CheckCircle className="w-4 h-4" />
-            <span className="text-xs uppercase tracking-wider">Progress</span>
+            <span className="text-xs uppercase tracking-wider">Workflow Progress</span>
           </div>
           <p className="text-2xl font-bold text-blue-400">{progress}%</p>
         </div>
@@ -88,6 +88,9 @@ export default function ProjectOverviewPage() {
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-sm font-medium">Task Status Distribution</span>
+            <span className="text-xs text-[var(--muted-foreground)]">
+              weighted by kanban stage
+            </span>
           </div>
           <div className="flex h-4 rounded-full overflow-hidden bg-[var(--background)]">
             {statusCounts.map((s) => (

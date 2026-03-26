@@ -64,6 +64,7 @@ export async function POST(request: Request) {
         .from('review_points')
         .select('label, section, point_text, draft_response, review:reviews(reviewer_name)')
         .eq('project_id', projectId)
+        .is('deleted_at', null)
         .not('draft_response', 'is', null);
 
       if (allPoints && allPoints.length > 0) {
@@ -109,7 +110,8 @@ export async function POST(request: Request) {
       await supabase
         .from('review_points')
         .update({ draft_response: draft, updated_at: new Date().toISOString() })
-        .eq('id', pointId);
+        .eq('id', pointId)
+        .is('deleted_at', null);
     }
 
     return NextResponse.json({ draft });

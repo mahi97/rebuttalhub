@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, type DropResult } from '@hello-pangea/dnd';
 import KanbanColumn from './KanbanColumn';
 import TaskDetailModal from './TaskDetailModal';
 import { TASK_STATUSES, type ReviewPoint, type TaskStatus, type Profile } from '@/types';
-import { Search } from 'lucide-react';
+import { Archive, RotateCcw, Search } from 'lucide-react';
+import { formatRelativeDate, truncate } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 interface KanbanBoardProps {
   points: ReviewPoint[];
+  archivedPoints: ReviewPoint[];
   members: { user_id: string; profile: Profile }[];
   reviews: { id: string; reviewer_name: string }[];
   onUpdatePoint: (pointId: string, updates: Partial<ReviewPoint>) => Promise<void>;
@@ -17,18 +19,24 @@ interface KanbanBoardProps {
   paperContext?: string;
 }
 
-export default function KanbanBoard({ points, members, reviews, onUpdatePoint, onRefresh, paperContext }: KanbanBoardProps) {
+export default function KanbanBoard({ points, archivedPoints, members, reviews, onUpdatePoint, onRefresh, paperContext }: KanbanBoardProps) {
   const [selectedPoint, setSelectedPoint] = useState<ReviewPoint | null>(null);
   const [search, setSearch] = useState('');
   const [filterReviewer, setFilterReviewer] = useState('');
   const [filterPriority, setFilterPriority] = useState('');
   const [filterAssignee, setFilterAssignee] = useState('');
+  const [showArchive, setShowArchive] = useState(false);
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTaskReviewer, setNewTaskReviewer] = useState('');
   const [newTaskSection, setNewTaskSection] = useState('Weakness');
   const [newTaskLabel, setNewTaskLabel] = useState('');
   const [newTaskText, setNewTaskText] = useState('');
   const [creating, setCreating] = useState(false);
+  const [restoringTaskId, setRestoringTaskId] = useState('');
+  const [boardScrollMetrics, setBoardScrollMetrics] = useState({ scrollWidth: 0, clientWidth: 0 });
+  const boardScrollRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const scrollSyncSourceRef = useRef<'top' | 'bottom' | null>(null);
 
   // Get unique reviewers
   const reviewers = useMemo(() => {
@@ -71,6 +79,177 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
     });
     return map;
   }, [filteredPoints]);
+
+  const adjacentTasks = useMemo(() => {
+    if (!selectedPoint) {
+      return { prevTask: null, nextTask: null };
+    }
+
+    const orderedColumns = TASK_STATUSES.map((status) => columnData.get(status.key) || []);
+    let currentColumnIndex = -1;
+    let currentTaskIndex = -1;
+
+    orderedColumns.some((columnPoints, columnIndex) => {
+      const taskIndex = columnPoints.findIndex((point) => point.id === selectedPoint.id);
+      if (taskIndex === -1) return false;
+      currentColumnIndex = columnIndex;
+      currentTaskIndex = taskIndex;
+      return true;
+    });
+
+    if (currentColumnIndex === -1 || currentTaskIndex === -1) {
+      return { prevTask: null, nextTask: null };
+    }
+
+    const currentColumn = orderedColumns[currentColumnIndex];
+    let prevTask: ReviewPoint | null = null;
+    let nextTask: ReviewPoint | null = null;
+
+    if (currentTaskIndex > 0) {
+      prevTask = currentColumn[currentTaskIndex - 1];
+    } else {
+      for (let columnIndex = currentColumnIndex - 1; columnIndex >= 0; columnIndex -= 1) {
+        const previousColumn = orderedColumns[columnIndex];
+        if (previousColumn.length > 0) {
+          prevTask = previousColumn[previousColumn.length - 1];
+          break;
+        }
+      }
+    }
+
+    if (currentTaskIndex < currentColumn.length - 1) {
+      nextTask = currentColumn[currentTaskIndex + 1];
+    } else {
+      for (let columnIndex = currentColumnIndex + 1; columnIndex < orderedColumns.length; columnIndex += 1) {
+        const followingColumn = orderedColumns[columnIndex];
+        if (followingColumn.length > 0) {
+          nextTask = followingColumn[0];
+          break;
+        }
+      }
+    }
+
+    return { prevTask, nextTask };
+  }, [columnData, selectedPoint]);
+
+  const hasHorizontalOverflow = boardScrollMetrics.scrollWidth > boardScrollMetrics.clientWidth + 1;
+
+  const updateBoardScrollMetrics = useCallback(() => {
+    const boardEl = boardScrollRef.current;
+    if (!boardEl) return;
+
+    setBoardScrollMetrics({
+      scrollWidth: boardEl.scrollWidth,
+      clientWidth: boardEl.clientWidth,
+    });
+  }, []);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(updateBoardScrollMetrics);
+    return () => window.cancelAnimationFrame(frame);
+  }, [updateBoardScrollMetrics, filteredPoints]);
+
+  useEffect(() => {
+    updateBoardScrollMetrics();
+
+    const handleResize = () => updateBoardScrollMetrics();
+    window.addEventListener('resize', handleResize);
+
+    const boardEl = boardScrollRef.current;
+    if (!boardEl || typeof ResizeObserver === 'undefined') {
+      return () => window.removeEventListener('resize', handleResize);
+    }
+
+    const observer = new ResizeObserver(() => updateBoardScrollMetrics());
+    observer.observe(boardEl);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      observer.disconnect();
+    };
+  }, [updateBoardScrollMetrics]);
+
+  useEffect(() => {
+    const topEl = topScrollRef.current;
+    const boardEl = boardScrollRef.current;
+    if (!topEl || !boardEl) return;
+
+    const maxScrollLeft = Math.max(0, boardEl.scrollWidth - boardEl.clientWidth);
+    if (boardEl.scrollLeft > maxScrollLeft) {
+      boardEl.scrollLeft = maxScrollLeft;
+    }
+    topEl.scrollLeft = boardEl.scrollLeft;
+  }, [boardScrollMetrics]);
+
+  useEffect(() => {
+    if (!selectedPoint) return;
+
+    const refreshedPoint = points.find((point) => point.id === selectedPoint.id);
+    if (!refreshedPoint) {
+      setSelectedPoint(null);
+      return;
+    }
+
+    if (refreshedPoint !== selectedPoint) {
+      setSelectedPoint(refreshedPoint);
+    }
+  }, [points, selectedPoint]);
+
+  useEffect(() => {
+    const isInteractiveTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      return (
+        target.isContentEditable ||
+        !!target.closest('input, textarea, select, button') ||
+        !!target.closest('[contenteditable="true"]')
+      );
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (selectedPoint) return;
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      if (isInteractiveTarget(event.target)) return;
+
+      const boardEl = boardScrollRef.current;
+      if (!boardEl || boardEl.scrollWidth <= boardEl.clientWidth) return;
+
+      event.preventDefault();
+      boardEl.scrollBy({
+        left: event.key === 'ArrowRight' ? 320 : -320,
+        behavior: 'smooth',
+      });
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedPoint]);
+
+  const handleTopScroll = useCallback(() => {
+    const topEl = topScrollRef.current;
+    const boardEl = boardScrollRef.current;
+    if (!topEl || !boardEl) return;
+    if (scrollSyncSourceRef.current === 'bottom') return;
+
+    scrollSyncSourceRef.current = 'top';
+    boardEl.scrollLeft = topEl.scrollLeft;
+    window.requestAnimationFrame(() => {
+      scrollSyncSourceRef.current = null;
+    });
+  }, []);
+
+  const handleBoardScroll = useCallback(() => {
+    const topEl = topScrollRef.current;
+    const boardEl = boardScrollRef.current;
+    if (!topEl || !boardEl) return;
+    if (scrollSyncSourceRef.current === 'top') return;
+
+    scrollSyncSourceRef.current = 'bottom';
+    topEl.scrollLeft = boardEl.scrollLeft;
+    window.requestAnimationFrame(() => {
+      scrollSyncSourceRef.current = null;
+    });
+  }, []);
 
   const handleDragEnd = useCallback(
     async (result: DropResult) => {
@@ -130,28 +309,31 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
   };
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
-    if (!confirm('Delete this task?')) return;
+    if (!confirm('Delete this task? You can restore it later from Archive.')) return;
     try {
       const res = await fetch('/api/tasks', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId }),
       });
-      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to delete task'));
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to archive task'));
       setSelectedPoint(null);
       await onRefresh();
-      toast.success('Task deleted');
+      toast.success('Task moved to archive');
     } catch (error: any) {
-      toast.error(error.message || 'Failed to delete task');
+      toast.error(error.message || 'Failed to archive task');
     }
   }, [getErrorMessage, onRefresh]);
 
-  const handleSplitTask = useCallback(async (taskId: string) => {
+  const handleSplitTask = useCallback(async (
+    taskId: string,
+    payload: { originalPointText: string; newPointText: string; newLabel: string }
+  ) => {
     try {
       const res = await fetch('/api/tasks', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'split', targetId: taskId }),
+        body: JSON.stringify({ action: 'split', targetId: taskId, ...payload }),
       });
       if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to split task'));
       setSelectedPoint(null);
@@ -181,6 +363,29 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
       toast.success('Tasks merged');
     } catch (error: any) {
       toast.error(error.message || 'Failed to merge tasks');
+    }
+  }, [getErrorMessage, onRefresh]);
+
+  const handleRestoreTask = useCallback(async (taskId: string) => {
+    setRestoringTaskId(taskId);
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'restore',
+          targetId: taskId,
+        }),
+      });
+
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to restore task'));
+
+      await onRefresh();
+      toast.success('Task restored');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to restore task');
+    } finally {
+      setRestoringTaskId('');
     }
   }, [getErrorMessage, onRefresh]);
 
@@ -244,12 +449,72 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
         )}
 
         <button
+          onClick={() => setShowArchive((prev) => !prev)}
+          className="flex items-center gap-2 px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-lg text-xs font-medium hover:border-blue-500/50 transition-colors"
+        >
+          <Archive className="w-4 h-4" />
+          Archive ({archivedPoints.length})
+        </button>
+
+        <button
           onClick={() => setShowNewTask(!showNewTask)}
           className="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-medium transition-colors"
         >
           + New Task
         </button>
       </div>
+
+      {showArchive && (
+        <div className="bg-[var(--card)] rounded-lg border border-[var(--border)] p-4 mb-4 space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold">Deleted Task Archive</h3>
+            <p className="text-sm text-[var(--muted-foreground)]">
+              Restoring a task brings it back to the board with its drafts, notes, and comments.
+            </p>
+          </div>
+
+          {archivedPoints.length === 0 ? (
+            <p className="text-sm text-[var(--muted-foreground)]">
+              No deleted tasks are currently archived.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {archivedPoints.map((point) => (
+                <div
+                  key={point.id}
+                  className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <span className="text-sm font-medium">{point.label || point.section}</span>
+                      <span className="text-xs text-[var(--muted-foreground)]">
+                        {point.review?.reviewer_name || 'Reviewer'}
+                      </span>
+                      {point.deleted_at && (
+                        <span className="text-xs text-[var(--muted-foreground)]">
+                          deleted {formatRelativeDate(point.deleted_at)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-[var(--muted-foreground)]">
+                      {truncate(point.point_text, 180)}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => handleRestoreTask(point.id)}
+                    disabled={restoringTaskId === point.id}
+                    className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    {restoringTaskId === point.id ? 'Restoring...' : 'Restore'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* New Task Form */}
       {showNewTask && (
@@ -300,22 +565,42 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
 
       {/* Board */}
       <DragDropContext onDragEnd={handleDragEnd}>
-        <div className="kanban-board">
-          {TASK_STATUSES.map((status) => {
-            const colPoints = columnData.get(status.key) || [];
-            const isEmpty = colPoints.length === 0;
-            return isEmpty ? (
-              <CollapsedColumn key={status.key} status={status} />
-            ) : (
-            <KanbanColumn
-              key={status.key}
-              status={status}
-              points={colPoints}
-              onCardClick={setSelectedPoint}
-            />
-            );
-          })}
-        </div>
+        <>
+          {hasHorizontalOverflow && (
+            <div
+              ref={topScrollRef}
+              onScroll={handleTopScroll}
+              className="mb-3 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--card)]/70"
+              aria-hidden="true"
+            >
+              <div
+                className="h-4"
+                style={{ width: Math.max(boardScrollMetrics.scrollWidth, boardScrollMetrics.clientWidth) }}
+              />
+            </div>
+          )}
+
+          <div
+            ref={boardScrollRef}
+            onScroll={handleBoardScroll}
+            className="kanban-board"
+          >
+            {TASK_STATUSES.map((status) => {
+              const colPoints = columnData.get(status.key) || [];
+              const isEmpty = colPoints.length === 0;
+              return isEmpty ? (
+                <CollapsedColumn key={status.key} status={status} />
+              ) : (
+              <KanbanColumn
+                key={status.key}
+                status={status}
+                points={colPoints}
+                onCardClick={setSelectedPoint}
+              />
+              );
+            })}
+          </div>
+        </>
       </DragDropContext>
 
       {/* Detail Modal */}
@@ -324,11 +609,14 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
           point={selectedPoint}
           members={members}
           mergeCandidates={mergeCandidates}
+          prevTask={adjacentTasks.prevTask}
+          nextTask={adjacentTasks.nextTask}
           onClose={() => setSelectedPoint(null)}
           onUpdate={handleCardUpdate}
+          onNavigateTask={setSelectedPoint}
           onDelete={() => handleDeleteTask(selectedPoint.id)}
           onMerge={(targetTaskId) => handleMergeTask(selectedPoint.id, targetTaskId)}
-          onSplit={() => handleSplitTask(selectedPoint.id)}
+          onSplit={(payload) => handleSplitTask(selectedPoint.id, payload)}
           paperContext={paperContext}
         />
       )}

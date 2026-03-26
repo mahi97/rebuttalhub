@@ -10,13 +10,13 @@ interface ProjectCardProps {
     memberCount?: number;
     reviewCount?: number;
     pointsTotal?: number;
-    pointsDone?: number;
+    pointsProgress?: number;
   };
 }
 
 export default function ProjectCard({ project }: ProjectCardProps) {
   const progress = project.pointsTotal
-    ? Math.round((project.pointsDone || 0) / project.pointsTotal * 100)
+    ? (project.pointsProgress || 0)
     : 0;
 
   return (
@@ -40,7 +40,7 @@ export default function ProjectCard({ project }: ProjectCardProps) {
         {project.pointsTotal !== undefined && project.pointsTotal > 0 && (
           <div className="mb-4">
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-[var(--muted-foreground)]">Progress</span>
+              <span className="text-[var(--muted-foreground)]">Workflow Progress</span>
               <span className="text-blue-400">{progress}%</span>
             </div>
             <div className="w-full h-2 bg-[var(--background)] rounded-full overflow-hidden">
