@@ -1,16 +1,17 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useRef, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { useProject } from '@/hooks/useProject';
 import InviteModal from '@/components/project/InviteModal';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Users, UserPlus, Loader2, FileText, BookOpen, Upload } from 'lucide-react';
+import { Settings, Users, UserPlus, Loader2, FileText, BookOpen, Upload, AlertTriangle, Trash2, Archive, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DEFAULT_REBUTTAL_TEMPLATE, DEFAULT_GUIDELINES } from '@/types';
 
 export default function ProjectSettingsPage() {
   const params = useParams();
+  const router = useRouter();
   const projectId = params.id as string;
   const { project, members, loading, refetchProject } = useProject(projectId);
   const [showInvite, setShowInvite] = useState(false);
@@ -20,7 +21,21 @@ export default function ProjectSettingsPage() {
   const [guidelines, setGuidelines] = useState('');
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [archivingProject, setArchivingProject] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
   const guidelineFileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const loadCurrentUser = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id || '');
+    };
+
+    loadCurrentUser();
+  }, []);
 
   // Initialize form values when project loads
   if (project && !initialized) {
@@ -65,6 +80,76 @@ export default function ProjectSettingsPage() {
     e.target.value = '';
   };
 
+  const handleDeleteProject = async () => {
+    if (!project) return;
+    if (deleteConfirmName.trim() !== project.name) {
+      toast.error('Type the project name exactly to enable deletion');
+      return;
+    }
+
+    if (!confirm(`Delete "${project.name}" permanently? This removes the project, files, reviews, tasks, comments, and saved rebuttal versions.`)) {
+      return;
+    }
+
+    setDeletingProject(true);
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'DELETE',
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to delete project');
+      }
+
+      toast.success('Project deleted');
+      router.push('/dashboard');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete project');
+    } finally {
+      setDeletingProject(false);
+    }
+  };
+
+  const handleArchiveToggle = async () => {
+    if (!project) return;
+
+    const nextAction = project.archived_at ? 'restore' : 'archive';
+    const confirmationMessage = project.archived_at
+      ? `Restore "${project.name}" to the active projects list?`
+      : `Archive "${project.name}"? It will be hidden from the active projects list until restored.`;
+
+    if (!confirm(confirmationMessage)) {
+      return;
+    }
+
+    setArchivingProject(true);
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: nextAction }),
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(payload?.error || `Failed to ${nextAction} project`);
+      }
+
+      toast.success(project.archived_at ? 'Project restored' : 'Project archived');
+
+      if (project.archived_at) {
+        await refetchProject();
+      } else {
+        router.push('/dashboard');
+      }
+    } catch (err: any) {
+      toast.error(err.message || `Failed to ${project.archived_at ? 'restore' : 'archive'} project`);
+    } finally {
+      setArchivingProject(false);
+    }
+  };
+
   if (loading || !project) {
     return (
       <div className="p-6 space-y-4">
@@ -73,6 +158,8 @@ export default function ProjectSettingsPage() {
       </div>
     );
   }
+
+  const isOwner = currentUserId === project.owner_id;
 
   return (
     <div className="p-6 max-w-3xl">
@@ -185,6 +272,54 @@ export default function ProjectSettingsPage() {
           Save All Settings
         </button>
       </div>
+
+      {isOwner && (
+        <div className="bg-[var(--card)] rounded-xl border border-red-500/20 p-5 mb-6">
+          <h2 className="text-lg font-semibold mb-2 flex items-center gap-2 text-red-300">
+            <AlertTriangle className="w-5 h-5" />
+            Danger Zone
+          </h2>
+          <p className="text-sm text-[var(--muted-foreground)] mb-4">
+            Archive hides the project but keeps everything so it can be restored later. Delete permanently removes files, reviews, tasks, comments, and saved rebuttal versions.
+          </p>
+          <div className="space-y-3">
+            <button
+              onClick={handleArchiveToggle}
+              disabled={archivingProject}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+            >
+              {archivingProject ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : project.archived_at ? (
+                <RotateCcw className="w-4 h-4" />
+              ) : (
+                <Archive className="w-4 h-4" />
+              )}
+              {project.archived_at ? 'Restore Project' : 'Archive Project'}
+            </button>
+
+            <div>
+              <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-1 block">
+                Type "{project.name}" to confirm
+              </label>
+              <input
+                value={deleteConfirmName}
+                onChange={(e) => setDeleteConfirmName(e.target.value)}
+                className="w-full bg-[var(--background)] border border-red-500/20 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-red-500"
+                placeholder={project.name}
+              />
+            </div>
+            <button
+              onClick={handleDeleteProject}
+              disabled={deletingProject || deleteConfirmName.trim() !== project.name}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+            >
+              {deletingProject ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete Project
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Members */}
       <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-5 mb-6">

@@ -15,6 +15,10 @@ export interface Project {
   owner_id: string;
   rebuttal_template: string | null;
   guidelines: string | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
+  archived_reason?: 'manual' | null;
+  archived_metadata?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

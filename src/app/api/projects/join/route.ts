@@ -16,12 +16,16 @@ export async function POST(request: Request) {
     // Find project by invite code
     const { data: project } = await supabase
       .from('projects')
-      .select('id, name')
+      .select('id, name, archived_at')
       .eq('invite_code', inviteCode.trim())
       .single();
 
     if (!project) {
       return NextResponse.json({ error: 'Invalid invite code' }, { status: 404 });
+    }
+
+    if (project.archived_at) {
+      return NextResponse.json({ error: 'This project is archived and cannot accept new members right now' }, { status: 400 });
     }
 
     // Check if already a member

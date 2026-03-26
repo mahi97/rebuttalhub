@@ -10,6 +10,8 @@ import {
   FileText,
   Loader2,
   X,
+  Archive,
+  RotateCcw,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
@@ -26,6 +28,8 @@ export default function DashboardPage() {
   const [newProjectDesc, setNewProjectDesc] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [creating, setCreating] = useState(false);
+  const [showArchivedProjects, setShowArchivedProjects] = useState(false);
+  const [restoringProjectId, setRestoringProjectId] = useState('');
   const router = useRouter();
 
   const fetchData = useCallback(async () => {
@@ -86,6 +90,9 @@ export default function DashboardPage() {
     fetchData();
   }, [fetchData]);
 
+  const activeProjects = projects.filter((project) => !project.archived_at);
+  const archivedProjects = projects.filter((project) => !!project.archived_at);
+
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
     setCreating(true);
@@ -126,6 +133,29 @@ export default function DashboardPage() {
     }
   };
 
+  const handleRestoreProject = async (projectId: string) => {
+    setRestoringProjectId(projectId);
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore' }),
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to restore project');
+      }
+
+      toast.success('Project restored');
+      await fetchData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to restore project');
+    } finally {
+      setRestoringProjectId('');
+    }
+  };
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -144,6 +174,13 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold">Projects</h2>
           <div className="flex gap-3">
+            <button
+              onClick={() => setShowArchivedProjects((prev) => !prev)}
+              className="flex items-center gap-2 px-4 py-2 bg-[var(--card)] border border-[var(--border)] rounded-lg text-sm hover:border-blue-500/50 transition-colors"
+            >
+              <Archive className="w-4 h-4" />
+              Archive ({archivedProjects.length})
+            </button>
             <button
               onClick={() => { setShowJoinProject(true); setShowNewProject(false); }}
               className="flex items-center gap-2 px-4 py-2 bg-[var(--card)] border border-[var(--border)] rounded-lg text-sm hover:border-blue-500/50 transition-colors"
@@ -221,6 +258,67 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {showArchivedProjects && (
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-5 mb-6">
+            <div className="mb-3">
+              <h3 className="font-semibold">Archived Projects</h3>
+              <p className="text-sm text-[var(--muted-foreground)]">
+                Archived projects are hidden from the active list but can be restored by the owner.
+              </p>
+            </div>
+
+            {archivedProjects.length === 0 ? (
+              <p className="text-sm text-[var(--muted-foreground)]">
+                No archived projects yet.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {archivedProjects.map((project) => {
+                  const canRestore = profile?.id === project.owner_id;
+
+                  return (
+                    <div
+                      key={project.id}
+                      className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 md:flex-row md:items-center md:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium">{project.name}</span>
+                          {project.archived_at && (
+                            <span className="text-xs text-[var(--muted-foreground)]">
+                              archived {new Date(project.archived_at).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                        {project.description && (
+                          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                            {project.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {canRestore ? (
+                        <button
+                          onClick={() => handleRestoreProject(project.id)}
+                          disabled={restoringProjectId === project.id}
+                          className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                          {restoringProjectId === project.id ? 'Restoring...' : 'Restore'}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-[var(--muted-foreground)]">
+                          Only the owner can restore
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Project Grid */}
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -228,14 +326,18 @@ export default function DashboardPage() {
               <div key={i} className="skeleton h-48" />
             ))}
           </div>
-        ) : projects.length === 0 ? (
+        ) : activeProjects.length === 0 ? (
           <div className="text-center py-16">
             <div className="w-20 h-20 rounded-full bg-[var(--card)] flex items-center justify-center mx-auto mb-4">
               <FileText className="w-10 h-10 text-[var(--muted-foreground)]" />
             </div>
-            <h3 className="text-lg font-semibold mb-2">No projects yet</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              {archivedProjects.length > 0 ? 'No active projects right now' : 'No projects yet'}
+            </h3>
             <p className="text-[var(--muted-foreground)] mb-4">
-              Create a new project to start managing your paper rebuttals.
+              {archivedProjects.length > 0
+                ? 'Your archived projects are available from the Archive button above and can be restored by their owner.'
+                : 'Create a new project to start managing your paper rebuttals.'}
             </p>
             <button
               onClick={() => setShowNewProject(true)}
@@ -247,7 +349,7 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {projects.map((project) => (
+            {activeProjects.map((project) => (
               <ProjectCard key={project.id} project={project} />
             ))}
           </div>

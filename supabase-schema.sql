@@ -20,6 +20,10 @@ CREATE TABLE IF NOT EXISTS projects (
   owner_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
   rebuttal_template TEXT,
   guidelines TEXT,
+  archived_at TIMESTAMPTZ,
+  archived_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  archived_reason TEXT,
+  archived_metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -128,6 +132,9 @@ CREATE TABLE IF NOT EXISTS rebuttal_version_applications (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS projects_active_updated_idx
+  ON projects (archived_at, updated_at DESC);
+
 CREATE INDEX IF NOT EXISTS review_points_active_idx
   ON review_points (project_id, deleted_at, sort_order);
 
@@ -177,6 +184,8 @@ CREATE POLICY "Users can insert own profile" ON profiles FOR INSERT WITH CHECK (
 CREATE POLICY "Members can view projects" ON projects FOR SELECT
   USING (id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid()));
 CREATE POLICY "Owners can update projects" ON projects FOR UPDATE
+  USING (owner_id = auth.uid());
+CREATE POLICY "Owners can delete projects" ON projects FOR DELETE
   USING (owner_id = auth.uid());
 CREATE POLICY "Auth users can create projects" ON projects FOR INSERT
   WITH CHECK (auth.uid() = owner_id);
@@ -265,6 +274,14 @@ CREATE POLICY "Members can view project files" ON storage.objects FOR SELECT
     bucket_id = 'project-files' AND
     (storage.foldername(name))[1] IN (
       SELECT project_id::text FROM project_members WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Project owners can delete project files" ON storage.objects FOR DELETE
+  USING (
+    bucket_id = 'project-files' AND
+    (storage.foldername(name))[1] IN (
+      SELECT id::text FROM projects WHERE owner_id = auth.uid()
     )
   );
 
