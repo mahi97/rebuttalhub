@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Sparkles, Loader2, ChevronDown } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { X, Sparkles, Loader2, ChevronDown, Minimize2 } from 'lucide-react';
+import MarkdownViewer from '@/components/ui/MarkdownViewer';
+import CommentsSection from './CommentsSection';
 import { useLLM } from '@/hooks/useLLM';
 import { TASK_STATUSES, SECTION_COLORS, PRIORITY_COLORS, type ReviewPoint, type TaskStatus, type Profile } from '@/types';
 
@@ -53,7 +53,7 @@ export default function TaskDetailModal({
     onUpdate(point.id, { assigned_to: userId || null });
   };
 
-  const handleDraftAI = async () => {
+  const callDraftLLM = async (mode: string, extraBody: Record<string, unknown> = {}) => {
     const result = await callLLM<{ draft: string }>('draft-response', {
       pointId: point.id,
       pointText: point.point_text,
@@ -62,23 +62,25 @@ export default function TaskDetailModal({
       paperContext: paperContext || '',
       projectId: point.project_id,
       reviewerName: point.review?.reviewer_name,
-      mode: 'new',
+      mode,
+      ...extraBody,
     });
-    if (result) setDraftResponse(result.draft);
+    return result?.draft;
+  };
+
+  const handleDraftAI = async () => {
+    const draft = await callDraftLLM('new');
+    if (draft) setDraftResponse(draft);
   };
 
   const handleImproveAI = async () => {
-    const result = await callLLM<{ draft: string }>('draft-response', {
-      pointId: point.id,
-      pointText: point.point_text,
-      sectionName: point.section,
-      label: point.label,
-      currentDraft: draftResponse,
-      projectId: point.project_id,
-      reviewerName: point.review?.reviewer_name,
-      mode: 'improve',
-    });
-    if (result) setDraftResponse(result.draft);
+    const draft = await callDraftLLM('improve', { currentDraft: draftResponse });
+    if (draft) setDraftResponse(draft);
+  };
+
+  const handleShortenAI = async () => {
+    const draft = await callDraftLLM('shorten', { currentDraft: draftResponse });
+    if (draft) setDraftResponse(draft);
   };
 
   const handleSaveDraft = () => {
@@ -91,6 +93,11 @@ export default function TaskDetailModal({
 
   const handleSaveNotes = () => {
     onUpdate(point.id, { notes });
+  };
+
+  const handleCopyDraftToFinal = () => {
+    setFinalResponse(draftResponse);
+    onUpdate(point.id, { final_response: draftResponse });
   };
 
   const sectionClass = SECTION_COLORS[point.section] || SECTION_COLORS['Other'];
@@ -114,13 +121,13 @@ export default function TaskDetailModal({
         </div>
 
         <div className="p-5 space-y-5 max-h-[calc(100vh-200px)] overflow-auto">
-          {/* Reviewer Comment */}
+          {/* Reviewer Comment with Markdown rendering */}
           <div>
             <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
-              Reviewer Comment
+              {point.section === 'Thank You' ? 'Reviewer Strengths' : 'Reviewer Comment'}
             </h4>
-            <div className="p-3 bg-[var(--background)] rounded-lg text-sm leading-relaxed markdown-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{point.point_text}</ReactMarkdown>
+            <div className="p-3 bg-[var(--background)] rounded-lg text-sm leading-relaxed">
+              <MarkdownViewer content={point.point_text} showToggle />
             </div>
           </div>
 
@@ -205,17 +212,27 @@ export default function TaskDetailModal({
                   className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-md bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors disabled:opacity-50"
                 >
                   {llmLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                  AI Draft
+                  {point.section === 'Thank You' ? 'AI Thank You' : 'AI Draft'}
                 </button>
                 {draftResponse && (
-                  <button
-                    onClick={handleImproveAI}
-                    disabled={llmLoading}
-                    className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-md bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors disabled:opacity-50"
-                  >
-                    {llmLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                    Improve
-                  </button>
+                  <>
+                    <button
+                      onClick={handleImproveAI}
+                      disabled={llmLoading}
+                      className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-md bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors disabled:opacity-50"
+                    >
+                      {llmLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                      Polish
+                    </button>
+                    <button
+                      onClick={handleShortenAI}
+                      disabled={llmLoading}
+                      className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-md bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                    >
+                      {llmLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Minimize2 className="w-3 h-3" />}
+                      Shorten
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -223,16 +240,38 @@ export default function TaskDetailModal({
               value={draftResponse}
               onChange={(e) => setDraftResponse(e.target.value)}
               onBlur={handleSaveDraft}
-              placeholder="Write or generate a draft response..."
+              placeholder={point.section === 'Thank You' ? 'Write or generate the thank-you note...' : 'Write or generate a draft response...'}
               className="w-full h-32 bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
+            {draftResponse && (
+              <div className="mt-2">
+                <details>
+                  <summary className="text-xs text-[var(--muted-foreground)] cursor-pointer hover:text-white">
+                    Preview rendered draft
+                  </summary>
+                  <div className="mt-2 p-3 bg-[var(--background)] rounded-lg">
+                    <MarkdownViewer content={draftResponse} showToggle={false} />
+                  </div>
+                </details>
+              </div>
+            )}
           </div>
 
           {/* Final Response */}
           <div>
-            <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
-              Final Response
-            </h4>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                Final Response
+              </h4>
+              {draftResponse && (
+                <button
+                  onClick={handleCopyDraftToFinal}
+                  className="text-xs text-blue-400 hover:text-blue-300"
+                >
+                  Copy draft to final
+                </button>
+              )}
+            </div>
             <textarea
               value={finalResponse}
               onChange={(e) => setFinalResponse(e.target.value)}
@@ -255,6 +294,12 @@ export default function TaskDetailModal({
               className="w-full h-20 bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
+
+          {/* Comments */}
+          <CommentsSection
+            reviewPointId={point.id}
+            projectId={point.project_id}
+          />
         </div>
       </div>
     </div>

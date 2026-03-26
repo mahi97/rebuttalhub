@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import MarkdownViewer from '@/components/ui/MarkdownViewer';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { FileText, Code, Eye } from 'lucide-react';
@@ -46,11 +45,7 @@ export default function FileViewer({ file }: FileViewerProps) {
 
       <div className="flex-1 overflow-auto p-4">
         {view === 'markdown' && file.extracted_markdown ? (
-          <div className="markdown-content max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {file.extracted_markdown}
-            </ReactMarkdown>
-          </div>
+          <MarkdownViewer content={file.extracted_markdown} showToggle={false} />
         ) : view === 'source' && file.extracted_text ? (
           <SyntaxHighlighter
             language={file.file_type === 'zip' ? 'latex' : 'text'}
@@ -66,11 +61,10 @@ export default function FileViewer({ file }: FileViewerProps) {
             {file.extracted_text}
           </SyntaxHighlighter>
         ) : file.html_content ? (
-          <div className="markdown-content max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {file.extracted_markdown || 'Processing...'}
-            </ReactMarkdown>
-          </div>
+          <MarkdownViewer
+            content={file.extracted_markdown || 'Processing...'}
+            showToggle={false}
+          />
         ) : (
           <div className="flex items-center justify-center h-full text-[var(--muted-foreground)]">
             <p>No preview available. File may still be processing.</p>

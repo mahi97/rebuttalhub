@@ -17,6 +17,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "jszip": "^3.10.1",
+    "katex": "^0.16.43",
     "lucide-react": "^0.474.0",
     "next": "14.2.35",
     "pdf-parse": "^1.1.1",
@@ -26,7 +27,9 @@
     "react-markdown": "^9.0.3",
     "react-syntax-highlighter": "^15.6.1",
     "rehype-highlight": "^7.0.2",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.0",
+    "remark-math": "^6.0.0",
     "tailwind-merge": "^3.0.2"
   },
   "devDependencies": {

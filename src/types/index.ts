@@ -97,6 +97,20 @@ export const TASK_STATUSES: { key: TaskStatus; label: string; color: string }[] 
   { key: 'done', label: 'Done', color: '#22c55e' },
 ];
 
+export interface Comment {
+  id: string;
+  review_point_id: string;
+  project_id: string;
+  user_id: string;
+  content: string;
+  resolved: boolean;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  profile?: Profile;
+}
+
 export interface ActivityLog {
   id: string;
   project_id: string;

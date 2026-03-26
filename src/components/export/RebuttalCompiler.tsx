@@ -78,6 +78,47 @@ export default function RebuttalCompiler({ reviews, points, project }: RebuttalC
     toast.success('All rebuttals compiled');
   };
 
+  /** Merge without LLM - just concatenate responses using the template format */
+  const handleMergeReviewer = (reviewerName: string) => {
+    const reviewerPoints = getReviewerPoints(reviewerName);
+    const thankYouPoint = reviewerPoints.find((p) => p.section === 'Thank You');
+    const responsePoints = reviewerPoints.filter((p) => p.section !== 'Thank You');
+
+    let merged = '';
+
+    // Thank you note
+    const thankYou = thankYouPoint?.final_response || thankYouPoint?.draft_response || '';
+    if (thankYou) {
+      merged += thankYou + '\n\n';
+    }
+
+    // Each response in order
+    for (const p of responsePoints) {
+      const response = p.final_response || p.draft_response;
+      if (!response) continue;
+
+      merged += '---\n';
+      merged += `> **${p.label}:** *${p.point_text.slice(0, 200)}${p.point_text.length > 200 ? '...' : ''}*\n\n`;
+      merged += `**Response ${p.label}:** ${response}\n\n`;
+    }
+
+    if (!merged.trim()) {
+      toast.error(`No responses to merge for ${reviewerName}`);
+      return;
+    }
+
+    setRebuttals((prev) => ({ ...prev, [reviewerName]: merged.trim() }));
+    setActiveReviewer(reviewerName);
+    toast.success(`Merged ${reviewerName} rebuttal`);
+  };
+
+  const handleMergeAll = () => {
+    for (const name of reviewerNames) {
+      handleMergeReviewer(name);
+    }
+    toast.success('All rebuttals merged');
+  };
+
   const handleReduceLength = async (reviewerName: string) => {
     const text = rebuttals[reviewerName];
     if (!text) return;
@@ -185,12 +226,18 @@ export default function RebuttalCompiler({ reviews, points, project }: RebuttalC
                 </div>
                 <div className="flex gap-2">
                   <button
+                    onClick={() => handleMergeReviewer(name)}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] hover:border-blue-500/50 rounded-md text-xs font-medium transition-colors"
+                  >
+                    Merge
+                  </button>
+                  <button
                     onClick={() => handleCompileReviewer(name)}
                     disabled={loading}
                     className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-md text-xs font-medium transition-colors disabled:opacity-50"
                   >
                     {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                    {hasRebuttal ? 'Recompile' : 'Compile'}
+                    {hasRebuttal ? 'AI Polish' : 'AI Compile'}
                   </button>
                   {hasRebuttal && (
                     <>
@@ -224,12 +271,18 @@ export default function RebuttalCompiler({ reviews, points, project }: RebuttalC
       {/* Bulk actions */}
       <div className="flex flex-wrap gap-3">
         <button
+          onClick={handleMergeAll}
+          className="flex items-center gap-2 px-4 py-2 bg-[var(--card)] border border-[var(--border)] hover:border-blue-500/50 rounded-lg font-medium text-sm transition-colors"
+        >
+          Merge All (no LLM)
+        </button>
+        <button
           onClick={handleCompileAll}
           disabled={loading}
           className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-          Compile All Reviewers
+          AI Polish All
         </button>
 
         {Object.keys(rebuttals).length > 0 && (
