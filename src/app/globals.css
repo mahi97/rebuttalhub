@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+  --card: #1e293b;
+  --card-foreground: #e2e8f0;
+  --border: #334155;
+  --input: #334155;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #1e293b;
+  --secondary-foreground: #e2e8f0;
+  --accent: #1e293b;
+  --accent-foreground: #e2e8f0;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --destructive: #ef4444;
+  --ring: #3b82f6;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+.kanban-board {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  padding-bottom: 1rem;
+  min-height: calc(100vh - 200px);
+}
+
+.kanban-column {
+  min-width: 280px;
+  max-width: 320px;
+  flex-shrink: 0;
+}
+
+.markdown-content h1 { font-size: 1.5rem; font-weight: 700; margin: 1.5rem 0 0.75rem; }
+.markdown-content h2 { font-size: 1.25rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+.markdown-content h3 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+.markdown-content p { margin: 0.5rem 0; line-height: 1.7; }
+.markdown-content ul, .markdown-content ol { margin: 0.5rem 0; padding-left: 1.5rem; }
+.markdown-content li { margin: 0.25rem 0; }
+.markdown-content blockquote { border-left: 3px solid var(--primary); padding-left: 1rem; margin: 0.75rem 0; color: var(--muted-foreground); }
+.markdown-content code { background: rgba(59, 130, 246, 0.1); padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-size: 0.875rem; }
+.markdown-content pre { background: #0f172a; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.75rem 0; }
+.markdown-content pre code { background: none; padding: 0; }
+.markdown-content hr { border-color: var(--border); margin: 1.5rem 0; }
+.markdown-content a { color: var(--primary); text-decoration: underline; }
+.markdown-content table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; }
+.markdown-content th, .markdown-content td { border: 1px solid var(--border); padding: 0.5rem; text-align: left; }
+.markdown-content th { background: rgba(59, 130, 246, 0.1); font-weight: 600; }
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--card) 25%, rgba(59, 130, 246, 0.05) 50%, var(--card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 0.5rem;
+}
