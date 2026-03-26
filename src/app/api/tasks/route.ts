@@ -1,5 +1,53 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+
+const PRIORITY_RANK: Record<string, number> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+function joinNonEmpty(values: Array<string | null | undefined>, separator: string) {
+  return values
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(separator) || null;
+}
+
+function buildMergedPointText(
+  tasks: Array<{ label: string | null; section: string | null; point_text: string | null }>
+) {
+  return joinNonEmpty(
+    tasks.map((task) => {
+      const prefix = task.label?.trim() || task.section?.trim() || 'Task';
+      const pointText = task.point_text?.trim() || '';
+      return pointText ? `[${prefix}] ${pointText}` : `[${prefix}]`;
+    }),
+    '\n\n---\n\n'
+  );
+}
+
+function buildMergedLabel(labels: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(labels.map((label) => label?.trim()).filter(Boolean))
+  ).join('+');
+}
+
+async function getAuthorizedClients() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+  }
+
+  const mutationClient = process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? createServiceClient()
+    : supabase;
+
+  return { supabase, mutationClient, user };
+}
 
 // POST: Create a new task
 export async function POST(request: Request) {
@@ -33,50 +81,128 @@ export async function POST(request: Request) {
   }
 }
 
-// PATCH: Merge tasks or delete task
+// PATCH: Merge or split tasks
 export async function PATCH(request: Request) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const auth = await getAuthorizedClients();
+    if (auth.error) return auth.error;
 
-    const { action, taskIds, targetId } = await request.json();
+    const { supabase, mutationClient } = auth;
+
+    const { action, taskIds, targetId, primaryId, secondaryId } = await request.json();
 
     if (action === 'merge') {
-      // Merge multiple tasks into one
-      if (!taskIds || taskIds.length < 2) {
-        return NextResponse.json({ error: 'Need at least 2 tasks to merge' }, { status: 400 });
+      const mergeIds = Array.from(
+        new Set(
+          [primaryId, secondaryId, ...(Array.isArray(taskIds) ? taskIds : [])].filter(Boolean)
+        )
+      );
+
+      if (mergeIds.length !== 2) {
+        return NextResponse.json({ error: 'Need exactly 2 tasks to merge' }, { status: 400 });
       }
 
-      const { data: tasks } = await supabase
+      const { data: tasks, error: tasksError } = await supabase
         .from('review_points')
         .select('*')
-        .in('id', taskIds)
-        .order('sort_order', { ascending: true });
+        .in('id', mergeIds);
 
-      if (!tasks || tasks.length < 2) {
+      if (tasksError) {
+        return NextResponse.json({ error: tasksError.message }, { status: 500 });
+      }
+
+      if (!tasks || tasks.length !== 2) {
         return NextResponse.json({ error: 'Tasks not found' }, { status: 404 });
       }
 
-      // Keep the first task, merge content from others
-      const primary = tasks[0];
-      const mergedPointText = tasks.map((t) => t.point_text).join('\n\n');
-      const mergedDraft = tasks.map((t) => t.draft_response).filter(Boolean).join('\n\n---\n\n');
+      const taskMap = new Map(tasks.map((task) => [task.id, task]));
+      const fallbackPrimary = [...tasks].sort((a, b) => a.sort_order - b.sort_order)[0];
+      const primaryTask = (primaryId && taskMap.get(primaryId)) || fallbackPrimary;
+      const secondaryTask = tasks.find((task) => task.id !== primaryTask.id);
 
-      await supabase
+      if (!secondaryTask) {
+        return NextResponse.json({ error: 'Need two distinct tasks to merge' }, { status: 400 });
+      }
+
+      if (primaryTask.project_id !== secondaryTask.project_id) {
+        return NextResponse.json({ error: 'Tasks must belong to the same project' }, { status: 400 });
+      }
+
+      if (primaryTask.review_id !== secondaryTask.review_id) {
+        return NextResponse.json({ error: 'Only tasks from the same reviewer can be merged' }, { status: 400 });
+      }
+
+      const mergedPayload = {
+        label: buildMergedLabel([primaryTask.label, secondaryTask.label]) || primaryTask.label || secondaryTask.label || '',
+        section: primaryTask.section === secondaryTask.section ? primaryTask.section : 'Other',
+        point_text: buildMergedPointText([primaryTask, secondaryTask]) || '',
+        draft_response: joinNonEmpty(
+          [primaryTask.draft_response, secondaryTask.draft_response],
+          '\n\n---\n\n'
+        ),
+        final_response: joinNonEmpty(
+          [primaryTask.final_response, secondaryTask.final_response],
+          '\n\n---\n\n'
+        ),
+        notes: joinNonEmpty(
+          [primaryTask.notes, secondaryTask.notes],
+          '\n\n---\n\n'
+        ),
+        priority:
+          (PRIORITY_RANK[secondaryTask.priority] || 0) > (PRIORITY_RANK[primaryTask.priority] || 0)
+            ? secondaryTask.priority
+            : primaryTask.priority,
+        assigned_to: primaryTask.assigned_to || secondaryTask.assigned_to || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data: mergedTask, error: updateError } = await mutationClient
         .from('review_points')
+        .update(mergedPayload)
+        .eq('id', primaryTask.id)
+        .select('*')
+        .single();
+
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
+
+      const { error: commentsError } = await mutationClient
+        .from('comments')
         .update({
-          point_text: mergedPointText,
-          draft_response: mergedDraft || null,
+          review_point_id: primaryTask.id,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', primary.id);
+        .eq('review_point_id', secondaryTask.id);
 
-      // Delete the other tasks
-      const otherIds = taskIds.filter((id: string) => id !== primary.id);
-      await supabase.from('review_points').delete().in('id', otherIds);
+      if (commentsError) {
+        return NextResponse.json({ error: commentsError.message }, { status: 500 });
+      }
 
-      return NextResponse.json({ success: true, mergedInto: primary.id });
+      const { data: deletedTask, error: deleteError } = await mutationClient
+        .from('review_points')
+        .delete()
+        .eq('id', secondaryTask.id)
+        .select('id')
+        .maybeSingle();
+
+      if (deleteError) {
+        return NextResponse.json({ error: deleteError.message }, { status: 500 });
+      }
+
+      if (!deletedTask) {
+        return NextResponse.json(
+          { error: 'The second task could not be removed after merging' },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        mergedInto: primaryTask.id,
+        mergedTask,
+        deletedTaskId: secondaryTask.id,
+      });
 
     } else if (action === 'split') {
       // Split a task into two
@@ -119,15 +245,37 @@ export async function PATCH(request: Request) {
 // DELETE: Delete a task
 export async function DELETE(request: Request) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const auth = await getAuthorizedClients();
+    if (auth.error) return auth.error;
+
+    const { supabase, mutationClient } = auth;
 
     const { taskId } = await request.json();
     if (!taskId) return NextResponse.json({ error: 'taskId required' }, { status: 400 });
 
-    const { error } = await supabase.from('review_points').delete().eq('id', taskId);
+    const { data: task, error: taskError } = await supabase
+      .from('review_points')
+      .select('id')
+      .eq('id', taskId)
+      .maybeSingle();
+
+    if (taskError) return NextResponse.json({ error: taskError.message }, { status: 500 });
+    if (!task) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+
+    const { data: deletedTask, error } = await mutationClient
+      .from('review_points')
+      .delete()
+      .eq('id', taskId)
+      .select('id')
+      .maybeSingle();
+
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!deletedTask) {
+      return NextResponse.json(
+        { error: 'Task could not be deleted. Check review_points delete permissions.' },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

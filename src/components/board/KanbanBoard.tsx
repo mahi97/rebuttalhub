@@ -13,7 +13,7 @@ interface KanbanBoardProps {
   members: { user_id: string; profile: Profile }[];
   reviews: { id: string; reviewer_name: string }[];
   onUpdatePoint: (pointId: string, updates: Partial<ReviewPoint>) => Promise<void>;
-  onRefresh: () => void;
+  onRefresh: () => Promise<void>;
   paperContext?: string;
 }
 
@@ -35,6 +35,19 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
     const names = new Set(points.map((p) => p.review?.reviewer_name).filter(Boolean));
     return Array.from(names) as string[];
   }, [points]);
+
+  const mergeCandidates = useMemo(() => {
+    if (!selectedPoint) return [];
+
+    return points
+      .filter((point) => point.id !== selectedPoint.id && point.review_id === selectedPoint.review_id)
+      .sort((a, b) => a.sort_order - b.sort_order);
+  }, [points, selectedPoint]);
+
+  const getErrorMessage = useCallback(async (res: Response, fallback: string) => {
+    const payload = await res.json().catch(() => null);
+    return payload?.error || fallback;
+  }, []);
 
   // Filter points
   const filteredPoints = useMemo(() => {
@@ -103,14 +116,14 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
           draftResponse: `> **${newTaskLabel}:** *${newTaskText.slice(0, 80)}*\n\n**Response ${newTaskLabel}:** `,
         }),
       });
-      if (!res.ok) throw new Error('Failed to create task');
-      toast.success('Task created');
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to create task'));
+      await onRefresh();
       setShowNewTask(false);
       setNewTaskLabel('');
       setNewTaskText('');
-      onRefresh();
-    } catch {
-      toast.error('Failed to create task');
+      toast.success('Task created');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to create task');
     } finally {
       setCreating(false);
     }
@@ -124,14 +137,14 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId }),
       });
-      if (!res.ok) throw new Error('Failed');
-      toast.success('Task deleted');
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to delete task'));
       setSelectedPoint(null);
-      onRefresh();
-    } catch {
-      toast.error('Failed to delete task');
+      await onRefresh();
+      toast.success('Task deleted');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete task');
     }
-  }, [onRefresh]);
+  }, [getErrorMessage, onRefresh]);
 
   const handleSplitTask = useCallback(async (taskId: string) => {
     try {
@@ -140,14 +153,36 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'split', targetId: taskId }),
       });
-      if (!res.ok) throw new Error('Failed');
-      toast.success('Task split');
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to split task'));
       setSelectedPoint(null);
-      onRefresh();
-    } catch {
-      toast.error('Failed to split task');
+      await onRefresh();
+      toast.success('Task split');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to split task');
     }
-  }, [onRefresh]);
+  }, [getErrorMessage, onRefresh]);
+
+  const handleMergeTask = useCallback(async (primaryTaskId: string, secondaryTaskId: string) => {
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'merge',
+          primaryId: primaryTaskId,
+          secondaryId: secondaryTaskId,
+        }),
+      });
+
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to merge tasks'));
+
+      setSelectedPoint(null);
+      await onRefresh();
+      toast.success('Tasks merged');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to merge tasks');
+    }
+  }, [getErrorMessage, onRefresh]);
 
   return (
     <div className="h-full flex flex-col">
@@ -288,9 +323,11 @@ export default function KanbanBoard({ points, members, reviews, onUpdatePoint, o
         <TaskDetailModal
           point={selectedPoint}
           members={members}
+          mergeCandidates={mergeCandidates}
           onClose={() => setSelectedPoint(null)}
           onUpdate={handleCardUpdate}
           onDelete={() => handleDeleteTask(selectedPoint.id)}
+          onMerge={(targetTaskId) => handleMergeTask(selectedPoint.id, targetTaskId)}
           onSplit={() => handleSplitTask(selectedPoint.id)}
           paperContext={paperContext}
         />

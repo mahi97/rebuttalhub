@@ -6,14 +6,17 @@ import MarkdownViewer from '@/components/ui/MarkdownViewer';
 import AutoResizeTextarea from '@/components/ui/AutoResizeTextarea';
 import CommentsSection from './CommentsSection';
 import { useLLM } from '@/hooks/useLLM';
+import { truncate } from '@/lib/utils';
 import { TASK_STATUSES, SECTION_COLORS, PRIORITY_COLORS, type ReviewPoint, type TaskStatus, type Profile } from '@/types';
 
 interface TaskDetailModalProps {
   point: ReviewPoint;
   members: { user_id: string; profile: Profile }[];
+  mergeCandidates?: ReviewPoint[];
   onClose: () => void;
   onUpdate: (pointId: string, updates: Partial<ReviewPoint>) => void;
   onDelete?: () => void;
+  onMerge?: (targetTaskId: string) => Promise<void>;
   onSplit?: () => void;
   paperContext?: string;
 }
@@ -21,9 +24,11 @@ interface TaskDetailModalProps {
 export default function TaskDetailModal({
   point,
   members,
+  mergeCandidates = [],
   onClose,
   onUpdate,
   onDelete,
+  onMerge,
   onSplit,
   paperContext,
 }: TaskDetailModalProps) {
@@ -34,6 +39,9 @@ export default function TaskDetailModal({
   const [status, setStatus] = useState<TaskStatus>(point.status);
   const [priority, setPriority] = useState(point.priority);
   const [assignedTo, setAssignedTo] = useState(point.assigned_to || '');
+  const [showMergePanel, setShowMergePanel] = useState(false);
+  const [mergeTargetId, setMergeTargetId] = useState('');
+  const [merging, setMerging] = useState(false);
   const { callLLM, loading: llmLoading } = useLLM();
 
   useEffect(() => {
@@ -114,6 +122,20 @@ export default function TaskDetailModal({
     setDraftView(view);
   };
 
+  const handleMergeTasks = async () => {
+    if (!onMerge || !mergeTargetId) return;
+    if (!confirm('Merge this task with the selected one? The current task will stay and the other task will be removed.')) {
+      return;
+    }
+
+    setMerging(true);
+    try {
+      await onMerge(mergeTargetId);
+    } finally {
+      setMerging(false);
+    }
+  };
+
   const sectionClass = SECTION_COLORS[point.section] || SECTION_COLORS['Other'];
 
   return (
@@ -130,6 +152,15 @@ export default function TaskDetailModal({
             </span>
           </div>
           <div className="flex items-center gap-1">
+            {onMerge && (
+              <button
+                onClick={() => setShowMergePanel((prev) => !prev)}
+                className="px-2 py-1 text-xs text-[var(--muted-foreground)] hover:text-white rounded hover:bg-white/10"
+                title="Merge task"
+              >
+                Merge
+              </button>
+            )}
             {onSplit && (
               <button onClick={onSplit} className="px-2 py-1 text-xs text-[var(--muted-foreground)] hover:text-white rounded hover:bg-white/10" title="Split task">
                 Split
@@ -224,6 +255,47 @@ export default function TaskDetailModal({
               </div>
             </div>
           </div>
+
+          {showMergePanel && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 space-y-3">
+              <div>
+                <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-1">
+                  Merge Tasks
+                </h4>
+                <p className="text-sm text-[var(--muted-foreground)]">
+                  Merge this task with another task from the same reviewer. This task stays; the selected task is folded into it and then removed.
+                </p>
+              </div>
+
+              {mergeCandidates.length > 0 ? (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    value={mergeTargetId}
+                    onChange={(e) => setMergeTargetId(e.target.value)}
+                    className="flex-1 bg-[var(--card)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">Select task to merge</option>
+                    {mergeCandidates.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.label || candidate.section} - {truncate(candidate.point_text, 80)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleMergeTasks}
+                    disabled={!mergeTargetId || merging}
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {merging ? 'Merging...' : 'Merge into this task'}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--muted-foreground)]">
+                  No other tasks from this reviewer are available to merge.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Draft Response */}
           <div>

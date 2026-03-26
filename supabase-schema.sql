@@ -148,6 +148,8 @@ CREATE POLICY "Members can create review points" ON review_points FOR INSERT
   WITH CHECK (project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid()));
 CREATE POLICY "Members can update review points" ON review_points FOR UPDATE
   USING (project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid()));
+CREATE POLICY "Members can delete review points" ON review_points FOR DELETE
+  USING (project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid()));
 
 -- Activity log
 CREATE POLICY "Members can view activity" ON activity_log FOR SELECT
