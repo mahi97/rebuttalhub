@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Sparkles, Loader2, ChevronDown, Minimize2 } from 'lucide-react';
+import { X, Sparkles, Loader2, ChevronDown, Minimize2, Code, Eye } from 'lucide-react';
 import MarkdownViewer from '@/components/ui/MarkdownViewer';
 import AutoResizeTextarea from '@/components/ui/AutoResizeTextarea';
 import CommentsSection from './CommentsSection';
@@ -28,6 +28,7 @@ export default function TaskDetailModal({
   paperContext,
 }: TaskDetailModalProps) {
   const [draftResponse, setDraftResponse] = useState(point.draft_response || '');
+  const [draftView, setDraftView] = useState<'markdown' | 'preview'>('markdown');
   const [finalResponse, setFinalResponse] = useState(point.final_response || '');
   const [notes, setNotes] = useState(point.notes || '');
   const [status, setStatus] = useState<TaskStatus>(point.status);
@@ -103,6 +104,14 @@ export default function TaskDetailModal({
   const handleCopyDraftToFinal = () => {
     setFinalResponse(draftResponse);
     onUpdate(point.id, { final_response: draftResponse });
+  };
+
+  const handleDraftViewChange = (view: 'markdown' | 'preview') => {
+    if (view === draftView) return;
+    if (draftView === 'markdown') {
+      handleSaveDraft();
+    }
+    setDraftView(view);
   };
 
   const sectionClass = SECTION_COLORS[point.section] || SECTION_COLORS['Other'];
@@ -218,11 +227,38 @@ export default function TaskDetailModal({
 
           {/* Draft Response */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                Draft Response
-              </h4>
-              <div className="flex gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-3">
+                <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                  Draft Response
+                </h4>
+                <div className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--background)] p-1">
+                  <button
+                    onClick={() => handleDraftViewChange('markdown')}
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors ${
+                      draftView === 'markdown'
+                        ? 'bg-blue-500/15 text-blue-400'
+                        : 'text-[var(--muted-foreground)] hover:text-white'
+                    }`}
+                  >
+                    <Code className="w-3 h-3" />
+                    Markdown
+                  </button>
+                  <button
+                    onClick={() => handleDraftViewChange('preview')}
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors ${
+                      draftView === 'preview'
+                        ? 'bg-blue-500/15 text-blue-400'
+                        : 'text-[var(--muted-foreground)] hover:text-white'
+                    }`}
+                  >
+                    <Eye className="w-3 h-3" />
+                    Preview
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={handleDraftAI}
                   disabled={llmLoading}
@@ -253,26 +289,28 @@ export default function TaskDetailModal({
                 )}
               </div>
             </div>
-            <AutoResizeTextarea
-              value={draftResponse}
-              onChange={(e) => setDraftResponse(e.target.value)}
-              onBlur={handleSaveDraft}
-              placeholder={point.section === 'Thank You' ? 'Write or generate the thank-you note...' : 'Write or generate a draft response...'}
-              className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-              minHeight={120}
-            />
-            {draftResponse && (
-              <div className="mt-2">
-                <details>
-                  <summary className="text-xs text-[var(--muted-foreground)] cursor-pointer hover:text-white">
-                    Preview rendered draft
-                  </summary>
-                  <div className="mt-2 p-3 bg-[var(--background)] rounded-lg">
+            <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg overflow-hidden">
+              {draftView === 'markdown' ? (
+                <AutoResizeTextarea
+                  value={draftResponse}
+                  onChange={(e) => setDraftResponse(e.target.value)}
+                  onBlur={handleSaveDraft}
+                  placeholder={point.section === 'Thank You' ? 'Write or generate the thank-you note...' : 'Write or generate a draft response...'}
+                  className="w-full bg-transparent p-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  minHeight={120}
+                />
+              ) : (
+                <div className="min-h-[120px] p-3 text-sm">
+                  {draftResponse ? (
                     <MarkdownViewer content={draftResponse} showToggle={false} />
-                  </div>
-                </details>
-              </div>
-            )}
+                  ) : (
+                    <p className="text-[var(--muted-foreground)]">
+                      Draft preview will appear here once the response has content.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Final Response (collapsible) */}
