@@ -1,12 +1,15 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 export function useRealtimeUpdates(
   projectId: string,
   onUpdate: () => void
 ) {
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+
   useEffect(() => {
     const supabase = createClient();
 
@@ -20,7 +23,7 @@ export function useRealtimeUpdates(
           table: 'review_points',
           filter: `project_id=eq.${projectId}`,
         },
-        () => onUpdate()
+        () => onUpdateRef.current()
       )
       .on(
         'postgres_changes',
@@ -30,22 +33,22 @@ export function useRealtimeUpdates(
           table: 'reviews',
           filter: `project_id=eq.${projectId}`,
         },
-        () => onUpdate()
+        () => onUpdateRef.current()
       )
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'project_files',
           filter: `project_id=eq.${projectId}`,
         },
-        () => onUpdate()
+        () => onUpdateRef.current()
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [projectId, onUpdate]);
+  }, [projectId]); // Only re-subscribe when projectId changes
 }

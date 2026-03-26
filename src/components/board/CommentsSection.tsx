@@ -19,17 +19,17 @@ export default function CommentsSection({ reviewPointId, projectId }: CommentsSe
   const [showResolved, setShowResolved] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const supabase = createClient();
-
   const fetchComments = useCallback(async () => {
+    const supabase = createClient();
     const { data } = await supabase
       .from('comments')
       .select('*, profile:profiles(*)')
       .eq('review_point_id', reviewPointId)
       .order('created_at', { ascending: true });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setComments((data as any) || []);
     setLoading(false);
-  }, [reviewPointId, supabase]);
+  }, [reviewPointId]);
 
   useEffect(() => {
     fetchComments();
@@ -39,6 +39,7 @@ export default function CommentsSection({ reviewPointId, projectId }: CommentsSe
     if (!newComment.trim()) return;
     setSending(true);
     try {
+      const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
@@ -61,6 +62,7 @@ export default function CommentsSection({ reviewPointId, projectId }: CommentsSe
 
   const handleResolve = async (commentId: string, resolved: boolean) => {
     try {
+      const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       await supabase.from('comments').update({
         resolved,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Project, ProjectMember, ProjectFile, Profile } from '@/types';
 
@@ -9,36 +9,45 @@ export function useProject(projectId: string) {
   const [members, setMembers] = useState<(ProjectMember & { profile: Profile })[]>([]);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const supabase = createClient();
+  const fetchedRef = useRef(false);
 
   const fetchProject = useCallback(async () => {
+    const supabase = createClient();
     const { data } = await supabase
       .from('projects')
       .select('*')
       .eq('id', projectId)
       .single();
     setProject(data);
-  }, [projectId, supabase]);
+  }, [projectId]);
 
   const fetchMembers = useCallback(async () => {
+    const supabase = createClient();
     const { data } = await supabase
       .from('project_members')
       .select('*, profile:profiles(*)')
       .eq('project_id', projectId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setMembers((data as any) || []);
-  }, [projectId, supabase]);
+  }, [projectId]);
 
   const fetchFiles = useCallback(async () => {
+    const supabase = createClient();
     const { data } = await supabase
       .from('project_files')
       .select('*')
       .eq('project_id', projectId)
       .order('created_at', { ascending: false });
     setFiles(data || []);
-  }, [projectId, supabase]);
+  }, [projectId]);
 
   useEffect(() => {
+    fetchedRef.current = false;
+  }, [projectId]);
+
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
     setLoading(true);
     Promise.all([fetchProject(), fetchMembers(), fetchFiles()]).finally(() =>
       setLoading(false)

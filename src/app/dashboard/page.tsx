@@ -27,9 +27,8 @@ export default function DashboardPage() {
   const [creating, setCreating] = useState(false);
   const router = useRouter();
 
-  const supabase = createClient();
-
   const fetchData = useCallback(async () => {
+    const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
@@ -80,7 +79,7 @@ export default function DashboardPage() {
 
     setProjects(enriched);
     setLoading(false);
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     fetchData();

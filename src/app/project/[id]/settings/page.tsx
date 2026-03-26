@@ -22,8 +22,6 @@ export default function ProjectSettingsPage() {
   const [initialized, setInitialized] = useState(false);
   const guidelineFileRef = useRef<HTMLInputElement>(null);
 
-  const supabase = createClient();
-
   // Initialize form values when project loads
   if (project && !initialized) {
     setName(project.name);
@@ -36,6 +34,7 @@ export default function ProjectSettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const supabase = createClient();
       const { error } = await supabase
         .from('projects')
         .update({

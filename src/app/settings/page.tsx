@@ -16,10 +16,9 @@ export default function SettingsPage() {
   const [testing, setTesting] = useState(false);
   const [keyValid, setKeyValid] = useState<boolean | null>(null);
 
-  const supabase = createClient();
-
   useEffect(() => {
     async function load() {
+      const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
@@ -30,7 +29,7 @@ export default function SettingsPage() {
       }
     }
     load();
-  }, [supabase]);
+  }, []);
 
   const handleTestKey = async () => {
     if (!apiKey.trim()) return;
@@ -64,6 +63,7 @@ export default function SettingsPage() {
     if (!profile) return;
     setSaving(true);
     try {
+      const supabase = createClient();
       const { error } = await supabase
         .from('profiles')
         .update({
