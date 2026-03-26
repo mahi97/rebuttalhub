@@ -37,7 +37,7 @@ Rules:
 - Be genuine and specific`;
 }
 
-export const DRAFT_RESPONSE_SYSTEM = `You are an expert academic author writing a rebuttal to peer reviewers. Be professional, specific, and constructive. Write concise responses.`;
+export const DRAFT_RESPONSE_SYSTEM = `You are an expert academic author writing a rebuttal to peer reviewers. Be professional, specific, and constructive. Write concise responses. Do NOT include any thank-you note or pleasantry. Jump straight to addressing the issue.`;
 
 export function draftResponsePrompt(
   paperContext: string,
@@ -47,7 +47,7 @@ export function draftResponsePrompt(
   template: string,
   guidelines: string
 ): string {
-  return `Draft a rebuttal response to this reviewer point.
+  return `Complete the response to this reviewer point. The draft already has the header formatted - you need to fill in the actual response content after "**Response ${label}:**".
 
 Paper context: ${paperContext.slice(0, 3000)}
 
@@ -58,12 +58,14 @@ Reviewer comment: "${pointText}"
 ${template ? `Response template format:\n${template}\n` : ''}
 ${guidelines ? `Writing guidelines:\n${guidelines}\n` : ''}
 Rules:
+- Do NOT write any thank-you note or greeting. Jump straight into the response.
 - Address the specific issue directly
 - Reference concrete evidence, experiments, or revisions
 - If the reviewer is mistaken, politely clarify with evidence
 - Cite specific locations (Table X, §Y, Appendix Z)
 - Simple answer: 2-4 sentences. Substantive criticism: 1-3 paragraphs max
-- Professional academic tone, no filler`;
+- Professional academic tone, no filler
+- Output ONLY the response text (no header, no label, no blockquote - those are already in the draft)`;
 }
 
 export const IMPROVE_DRAFT_SYSTEM = `You are editing an academic rebuttal response. Improve clarity, strengthen arguments, and maintain professional tone.`;

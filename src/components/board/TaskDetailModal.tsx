@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { X, Sparkles, Loader2, ChevronDown, Minimize2 } from 'lucide-react';
 import MarkdownViewer from '@/components/ui/MarkdownViewer';
+import AutoResizeTextarea from '@/components/ui/AutoResizeTextarea';
 import CommentsSection from './CommentsSection';
 import { useLLM } from '@/hooks/useLLM';
 import { TASK_STATUSES, SECTION_COLORS, PRIORITY_COLORS, type ReviewPoint, type TaskStatus, type Profile } from '@/types';
@@ -12,6 +13,8 @@ interface TaskDetailModalProps {
   members: { user_id: string; profile: Profile }[];
   onClose: () => void;
   onUpdate: (pointId: string, updates: Partial<ReviewPoint>) => void;
+  onDelete?: () => void;
+  onSplit?: () => void;
   paperContext?: string;
 }
 
@@ -20,6 +23,8 @@ export default function TaskDetailModal({
   members,
   onClose,
   onUpdate,
+  onDelete,
+  onSplit,
   paperContext,
 }: TaskDetailModalProps) {
   const [draftResponse, setDraftResponse] = useState(point.draft_response || '');
@@ -115,9 +120,21 @@ export default function TaskDetailModal({
               {point.section} &middot; {point.review?.reviewer_name || 'Reviewer'}
             </span>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-white/10">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            {onSplit && (
+              <button onClick={onSplit} className="px-2 py-1 text-xs text-[var(--muted-foreground)] hover:text-white rounded hover:bg-white/10" title="Split task">
+                Split
+              </button>
+            )}
+            {onDelete && (
+              <button onClick={onDelete} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 rounded hover:bg-red-500/10" title="Delete task">
+                Delete
+              </button>
+            )}
+            <button onClick={onClose} className="p-1 rounded hover:bg-white/10">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="p-5 space-y-5 max-h-[calc(100vh-200px)] overflow-auto">
@@ -236,12 +253,13 @@ export default function TaskDetailModal({
                 )}
               </div>
             </div>
-            <textarea
+            <AutoResizeTextarea
               value={draftResponse}
               onChange={(e) => setDraftResponse(e.target.value)}
               onBlur={handleSaveDraft}
               placeholder={point.section === 'Thank You' ? 'Write or generate the thank-you note...' : 'Write or generate a draft response...'}
-              className="w-full h-32 bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+              minHeight={120}
             />
             {draftResponse && (
               <div className="mt-2">
@@ -257,43 +275,47 @@ export default function TaskDetailModal({
             )}
           </div>
 
-          {/* Final Response */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                Final Response
-              </h4>
-              {draftResponse && (
+          {/* Final Response (collapsible) */}
+          <details>
+            <summary className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-white">
+              Final Response {finalResponse && '(has content)'}
+              {draftResponse && !finalResponse && (
                 <button
-                  onClick={handleCopyDraftToFinal}
-                  className="text-xs text-blue-400 hover:text-blue-300"
+                  onClick={(e) => { e.preventDefault(); handleCopyDraftToFinal(); }}
+                  className="ml-2 text-blue-400 hover:text-blue-300 normal-case"
                 >
                   Copy draft to final
                 </button>
               )}
+            </summary>
+            <div className="mt-2">
+              <AutoResizeTextarea
+                value={finalResponse}
+                onChange={(e) => setFinalResponse(e.target.value)}
+                onBlur={handleSaveFinal}
+                placeholder="Finalized response for export..."
+                className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                minHeight={80}
+              />
             </div>
-            <textarea
-              value={finalResponse}
-              onChange={(e) => setFinalResponse(e.target.value)}
-              onBlur={handleSaveFinal}
-              placeholder="Finalized response for export..."
-              className="w-full h-24 bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
+          </details>
 
-          {/* Notes */}
-          <div>
-            <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
-              Notes
-            </h4>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              onBlur={handleSaveNotes}
-              placeholder="Internal notes..."
-              className="w-full h-20 bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
+          {/* Notes (collapsible) */}
+          <details>
+            <summary className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-white">
+              Notes {notes && '(has content)'}
+            </summary>
+            <div className="mt-2">
+              <AutoResizeTextarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                onBlur={handleSaveNotes}
+                placeholder="Internal notes..."
+                className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                minHeight={60}
+              />
+            </div>
+          </details>
 
           {/* Comments */}
           <CommentsSection

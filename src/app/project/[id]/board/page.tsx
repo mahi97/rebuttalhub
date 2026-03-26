@@ -11,7 +11,7 @@ export default function BoardPage() {
   const params = useParams();
   const projectId = params.id as string;
   const { members, files } = useProject(projectId);
-  const { reviewPoints, loading, refetch, updatePoint } = useReviews(projectId);
+  const { reviews, reviewPoints, loading, refetch, updatePoint } = useReviews(projectId);
 
   const handleRealtimeUpdate = useCallback(() => {
     refetch();
@@ -19,7 +19,6 @@ export default function BoardPage() {
 
   useRealtimeUpdates(projectId, handleRealtimeUpdate);
 
-  // Get paper context from PDF file for AI drafting
   const pdfFile = files.find((f) => f.file_type === 'pdf');
   const paperContext = pdfFile?.extracted_text?.slice(0, 3000) || '';
 
@@ -48,7 +47,9 @@ export default function BoardPage() {
       <KanbanBoard
         points={reviewPoints}
         members={members}
+        reviews={reviews.map((r) => ({ id: r.id, reviewer_name: r.reviewer_name }))}
         onUpdatePoint={updatePoint}
+        onRefresh={refetch}
         paperContext={paperContext}
       />
     </div>
