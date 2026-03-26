@@ -300,7 +300,7 @@ export default function ProjectSettingsPage() {
 
             <div>
               <label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-1 block">
-                Type "{project.name}" to confirm
+                Type &quot;{project.name}&quot; to confirm
               </label>
               <input
                 value={deleteConfirmName}

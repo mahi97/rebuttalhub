@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Sparkles, Loader2, ChevronDown, Minimize2, Code, Eye, ChevronLeft, ChevronRight, RotateCcw, Save } from 'lucide-react';
 import MarkdownViewer from '@/components/ui/MarkdownViewer';
 import AutoResizeTextarea from '@/components/ui/AutoResizeTextarea';
@@ -74,6 +74,7 @@ export default function TaskDetailModal({
   onSplit,
   paperContext,
 }: TaskDetailModalProps) {
+  const lastPointIdRef = useRef<string | null>(null);
   const [savedState, setSavedState] = useState<EditableTaskState>(() => buildEditableState(point));
   const [draftResponse, setDraftResponse] = useState(savedState.draftResponse);
   const [draftView, setDraftView] = useState<'markdown' | 'preview'>('markdown');
@@ -116,6 +117,11 @@ export default function TaskDetailModal({
   };
 
   useEffect(() => {
+    if (lastPointIdRef.current === point.id) {
+      return;
+    }
+
+    lastPointIdRef.current = point.id;
     const nextSavedState = buildEditableState(point);
     setSavedState(nextSavedState);
     applyEditableState(nextSavedState);
@@ -127,25 +133,25 @@ export default function TaskDetailModal({
     setSplitNewText('');
     setSplitNewLabel(getDefaultSplitLabel(point));
     setPendingAction(null);
-  }, [point.id]);
+  }, [point]);
 
-  const runPendingAction = (action: NonNullable<typeof pendingAction>) => {
+  const runPendingAction = useCallback((action: NonNullable<typeof pendingAction>) => {
     if (action.type === 'close') {
       onClose();
       return;
     }
 
     onNavigateTask?.(action.target);
-  };
+  }, [onClose, onNavigateTask]);
 
-  const requestAction = (action: NonNullable<typeof pendingAction>) => {
+  const requestAction = useCallback((action: NonNullable<typeof pendingAction>) => {
     if (isDirty) {
       setPendingAction(action);
       return;
     }
 
     runPendingAction(action);
-  };
+  }, [isDirty, runPendingAction]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -171,7 +177,7 @@ export default function TaskDetailModal({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextTask, prevTask, isDirty, onClose, onNavigateTask]);
+  }, [nextTask, prevTask, requestAction]);
 
   const handleStatusChange = (newStatus: TaskStatus) => {
     setStatus(newStatus);
