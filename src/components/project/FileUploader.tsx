@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { FileText, FileCode, Globe, Loader2 } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 import toast from 'react-hot-toast';
 
 interface FileUploaderProps {
@@ -15,6 +16,12 @@ const fileTypes = [
   { type: 'zip', label: 'LaTeX Source (ZIP)', accept: '.zip', icon: FileCode, processEndpoint: '/api/files/process-latex' },
 ];
 
+const subfolders: Record<string, string> = {
+  pdf: 'papers',
+  html: 'openreview',
+  zip: 'latex',
+};
+
 export default function FileUploader({ projectId, onUploadComplete }: FileUploaderProps) {
   const [uploading, setUploading] = useState<string | null>(null);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -22,26 +29,40 @@ export default function FileUploader({ projectId, onUploadComplete }: FileUpload
   const handleUpload = async (fileType: string, processEndpoint: string, file: File) => {
     setUploading(fileType);
     try {
-      // Upload file
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('projectId', projectId);
-      formData.append('fileType', fileType);
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
-      const uploadRes = await fetch('/api/files/upload', {
-        method: 'POST',
-        body: formData,
-      });
+      // Upload directly to Supabase Storage (bypasses Vercel 4.5MB body limit)
+      const storagePath = `${projectId}/${subfolders[fileType] || 'other'}/${file.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from('project-files')
+        .upload(storagePath, file, {
+          contentType: file.type,
+          upsert: true,
+        });
 
-      if (!uploadRes.ok) {
-        const err = await uploadRes.json();
-        throw new Error(err.error || 'Upload failed');
-      }
+      if (uploadError) throw new Error(uploadError.message);
 
-      const { file: fileRecord } = await uploadRes.json();
+      // Create file record in database
+      const { data: fileRecord, error: dbError } = await supabase
+        .from('project_files')
+        .insert({
+          project_id: projectId,
+          file_name: file.name,
+          file_type: fileType,
+          storage_path: storagePath,
+          file_size: file.size,
+          uploaded_by: user.id,
+        })
+        .select()
+        .single();
+
+      if (dbError) throw new Error(dbError.message);
+
       toast.success(`${file.name} uploaded successfully`);
 
-      // Process file
+      // Process file via API route (the file is already in storage, so no body size issue)
       toast.loading('Processing file...', { id: 'processing' });
       const processRes = await fetch(processEndpoint, {
         method: 'POST',
@@ -63,7 +84,8 @@ export default function FileUploader({ projectId, onUploadComplete }: FileUpload
           toast.success('File processed successfully');
         }
       } else {
-        toast.error('File uploaded but processing failed. You can retry later.');
+        const err = await processRes.json().catch(() => ({}));
+        toast.error(err.error || 'File uploaded but processing failed. You can retry later.');
       }
 
       onUploadComplete();

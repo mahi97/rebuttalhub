@@ -1,0 +1,19 @@
+{
+  "functions": {
+    "src/app/api/files/upload/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/files/process-pdf/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/files/process-html/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/files/process-latex/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/llm/*/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

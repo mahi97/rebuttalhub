@@ -1,6 +1,10 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
+// Increase body size limit for file uploads (default is 4.5MB on Vercel)
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
