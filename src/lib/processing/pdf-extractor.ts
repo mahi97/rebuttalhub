@@ -10,9 +10,10 @@ export async function processPDF(fileBuffer: Buffer): Promise<{
 
   const data = await pdf(fileBuffer);
 
-  const text = data.text;
-  const pageCount = data.numpages;
-  const markdown = convertPdfTextToMarkdown(text);
+  // pdf-parse can return null/undefined for image-only or encrypted PDFs
+  const text = data.text ?? '';
+  const pageCount = data.numpages ?? 0;
+  const markdown = text ? convertPdfTextToMarkdown(text) : '';
 
   return { text, markdown, pageCount };
 }
