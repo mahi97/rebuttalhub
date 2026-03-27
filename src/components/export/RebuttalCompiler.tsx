@@ -40,6 +40,12 @@ interface PolishProposal {
   rawProposalText: string;
 }
 
+interface SnapshotGroup {
+  key: string;
+  title: string;
+  versions: RebuttalVersion[];
+}
+
 const ALL_REVIEWERS_KEY = '__all_reviewers__';
 
 const POLISH_CHANGE_OPTIONS = [
@@ -57,6 +63,41 @@ function formatTimestamp(timestamp: string) {
 
 function normalizeLabel(value: string | null | undefined) {
   return value?.trim().toLowerCase() || '';
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripSurroundingSeparators(text: string) {
+  return text
+    .replace(/^(?:---\s*\n+)+/g, '')
+    .replace(/\n+(?:---\s*)+$/g, '')
+    .trim();
+}
+
+function formatMergedResponseBlock(
+  point: Pick<ReviewPoint, 'label' | 'section' | 'point_text'>,
+  response: string
+) {
+  const cleanedResponse = stripSurroundingSeparators(response);
+  if (!cleanedResponse) return '';
+
+  const blockLabel = point.label || point.section;
+  if (blockLabel) {
+    const responseHeaderPattern = new RegExp(`\\*\\*Response\\s+${escapeRegExp(blockLabel)}\\s*:\\*\\*`, 'i');
+    const summaryHeaderPattern = new RegExp(`(^|\\n)>\\s*\\*\\*${escapeRegExp(blockLabel)}\\s*:\\*\\*`, 'i');
+
+    if (responseHeaderPattern.test(cleanedResponse) || summaryHeaderPattern.test(cleanedResponse)) {
+      return cleanedResponse;
+    }
+  }
+
+  return [
+    `> **${blockLabel}:** *${point.point_text.slice(0, 200)}${point.point_text.length > 200 ? '...' : ''}*`,
+    '',
+    `**Response ${blockLabel}:** ${cleanedResponse}`,
+  ].join('\n').trim();
 }
 
 function getHistoryKey(version: RebuttalVersion, reviewsById: Map<string, Review>) {
@@ -190,23 +231,17 @@ export default function RebuttalCompiler({ reviews, points, project, onRefresh }
     const thankYouPoint = reviewerPoints.find((point) => point.section === 'Thank You');
     const responsePoints = reviewerPoints.filter((point) => point.section !== 'Thank You');
 
-    let merged = '';
-
     const thankYou = thankYouPoint?.final_response || thankYouPoint?.draft_response || '';
-    if (thankYou) {
-      merged += thankYou.trim() + '\n\n';
-    }
+    const mergedResponses = responsePoints
+      .map((point) => {
+        const response = point.final_response || point.draft_response;
+        if (!response) return '';
+        return formatMergedResponseBlock(point, response);
+      })
+      .filter(Boolean)
+      .join('\n\n---\n\n');
 
-    for (const point of responsePoints) {
-      const response = point.final_response || point.draft_response;
-      if (!response) continue;
-
-      merged += '---\n';
-      merged += `> **${point.label}:** *${point.point_text.slice(0, 200)}${point.point_text.length > 200 ? '...' : ''}*\n\n`;
-      merged += `**Response ${point.label}:** ${response}\n\n`;
-    }
-
-    return merged.trim();
+    return [thankYou.trim(), mergedResponses].filter(Boolean).join('\n\n').trim();
   }, [getReviewerPoints]);
 
   const buildCombinedRebuttal = useCallback((sourceRebuttals: Record<string, string>) => {
@@ -707,6 +742,114 @@ export default function RebuttalCompiler({ reviews, points, project, onRefresh }
     return map;
   }, [applications]);
 
+  const snapshotGroups = useMemo(() => {
+    const groups = new Map<string, SnapshotGroup>();
+
+    versions.forEach((version) => {
+      const key = getHistoryKey(version, reviewsById);
+      if (!key) return;
+
+      const existing = groups.get(key);
+      if (existing) {
+        existing.versions.push(version);
+        return;
+      }
+
+      groups.set(key, {
+        key,
+        title: key === ALL_REVIEWERS_KEY ? 'All Reviewers' : key,
+        versions: [version],
+      });
+    });
+
+    const orderedKeys = [
+      ...(groups.has(ALL_REVIEWERS_KEY) ? [ALL_REVIEWERS_KEY] : []),
+      ...reviewerNames.filter((reviewerName) => groups.has(reviewerName)),
+      ...Array.from(groups.keys())
+        .filter((key) => key !== ALL_REVIEWERS_KEY && !reviewerNames.includes(key))
+        .sort((left, right) => left.localeCompare(right)),
+    ];
+
+    return orderedKeys.map((key) => groups.get(key)).filter(Boolean) as SnapshotGroup[];
+  }, [reviewerNames, reviewsById, versions]);
+
+  const renderSnapshotCard = useCallback((version: RebuttalVersion) => {
+    const latestApplication = latestApplicationByVersion.get(version.id);
+    const openApplication = latestOpenApplicationByVersion.get(version.id);
+    const isSelected = selectedVersionId === version.id;
+
+    return (
+      <div
+        key={version.id}
+        className={`rounded-lg border p-3 ${
+          isSelected ? 'border-blue-500/50 bg-blue-500/5' : 'border-[var(--border)] bg-[var(--background)]'
+        }`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium">{formatTimestamp(version.created_at)}</span>
+              <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                {version.scope === 'all' ? 'All Reviewers' : version.reviewer_name || reviewsById.get(version.review_id || '')?.reviewer_name || 'Reviewer'}
+              </span>
+              {isSelected && (
+                <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-300">
+                  Open now
+                </span>
+              )}
+            </div>
+            <p className="mt-1 line-clamp-2 text-sm text-[var(--muted-foreground)]">
+              {version.content.slice(0, 220)}
+            </p>
+            {latestApplication && (
+              <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+                {latestApplication.reverted_at
+                  ? `Last transfer reverted on ${formatTimestamp(latestApplication.reverted_at)}`
+                  : `Last transferred on ${formatTimestamp(latestApplication.created_at)}`}
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => handleOpenVersion(version)}
+              className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs transition-colors hover:border-blue-500/50"
+            >
+              Open in Editor
+            </button>
+            <button
+              onClick={() => handleApplyVersion(version)}
+              disabled={historyActionId === `apply:${version.id}`}
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-3 py-1.5 text-xs transition-colors hover:border-blue-500/50 disabled:opacity-50"
+            >
+              {historyActionId === `apply:${version.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+              Transfer to Cards
+            </button>
+            {openApplication && (
+              <button
+                onClick={() => handleRevertApplication(openApplication)}
+                disabled={historyActionId === `revert:${openApplication.id}`}
+                className="inline-flex items-center gap-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200 transition-colors hover:bg-amber-500/15 disabled:opacity-50"
+              >
+                {historyActionId === `revert:${openApplication.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                Revert Transfer
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }, [
+    handleApplyVersion,
+    handleOpenVersion,
+    handleRevertApplication,
+    historyActionId,
+    latestApplicationByVersion,
+    latestOpenApplicationByVersion,
+    reviewsById,
+    selectedVersionId,
+  ]);
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -1031,6 +1174,69 @@ export default function RebuttalCompiler({ reviews, points, project, onRefresh }
         </div>
       )}
 
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4 text-[var(--muted-foreground)]" />
+            <div>
+              <h3 className="text-sm font-semibold">Snapshots</h3>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Every time you click Save Snapshot, it appears here. Open one in the editor, or transfer it back to task cards from this section.
+              </p>
+            </div>
+          </div>
+          {historyLoading && (
+            <span className="inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading snapshots...
+            </span>
+          )}
+        </div>
+
+        {snapshotGroups.length === 0 ? (
+          <p className="text-sm text-[var(--muted-foreground)]">
+            No snapshots saved yet.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {snapshotGroups.map((group) => (
+              <div
+                key={group.key}
+                className={`rounded-xl border p-4 ${
+                  activeReviewer === group.key
+                    ? 'border-blue-500/40 bg-blue-500/5'
+                    : 'border-[var(--border)] bg-[var(--background)]'
+                }`}
+              >
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="text-sm font-semibold">{group.title}</h4>
+                    <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                      {group.versions.length} snapshot{group.versions.length === 1 ? '' : 's'}
+                    </span>
+                    {activeReviewer === group.key && (
+                      <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-300">
+                        Open in editor
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleOpenVersion(group.versions[0])}
+                    className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs transition-colors hover:border-blue-500/50"
+                  >
+                    Open Latest Snapshot
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {group.versions.map((version) => renderSnapshotCard(version))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {activeReviewer && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1106,9 +1312,9 @@ export default function RebuttalCompiler({ reviews, points, project, onRefresh }
               <div className="flex items-center gap-2">
                 <History className="h-4 w-4 text-[var(--muted-foreground)]" />
                 <div>
-                  <h4 className="text-sm font-semibold">Saved Versions</h4>
+                  <h4 className="text-sm font-semibold">Snapshots for This View</h4>
                   <p className="text-xs text-[var(--muted-foreground)]">
-                    Each save creates a timestamped snapshot. Transfer back to task cards only from these saved versions.
+                    The full snapshot browser is above. This filtered list stays focused on the rebuttal currently open in the editor.
                   </p>
                 </div>
               </div>
@@ -1126,73 +1332,7 @@ export default function RebuttalCompiler({ reviews, points, project, onRefresh }
               </p>
             ) : (
               <div className="space-y-3">
-                {versionsForActiveView.map((version) => {
-                  const latestApplication = latestApplicationByVersion.get(version.id);
-                  const openApplication = latestOpenApplicationByVersion.get(version.id);
-                  const isSelected = selectedVersionId === version.id;
-
-                  return (
-                    <div
-                      key={version.id}
-                      className={`rounded-lg border p-3 ${
-                        isSelected ? 'border-blue-500/50 bg-blue-500/5' : 'border-[var(--border)] bg-[var(--background)]'
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-medium">{formatTimestamp(version.created_at)}</span>
-                            <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-                              {version.scope === 'all' ? 'All Reviewers' : version.reviewer_name || reviewsById.get(version.review_id || '')?.reviewer_name || 'Reviewer'}
-                            </span>
-                            {isSelected && (
-                              <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-300">
-                                Open now
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-1 line-clamp-2 text-sm text-[var(--muted-foreground)]">
-                            {version.content.slice(0, 220)}
-                          </p>
-                          {latestApplication && (
-                            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-                              {latestApplication.reverted_at
-                                ? `Last transfer reverted on ${formatTimestamp(latestApplication.reverted_at)}`
-                                : `Last transferred on ${formatTimestamp(latestApplication.created_at)}`}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            onClick={() => handleOpenVersion(version)}
-                            className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs transition-colors hover:border-blue-500/50"
-                          >
-                            Open
-                          </button>
-                          <button
-                            onClick={() => handleApplyVersion(version)}
-                            disabled={historyActionId === `apply:${version.id}`}
-                            className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-3 py-1.5 text-xs transition-colors hover:border-blue-500/50 disabled:opacity-50"
-                          >
-                            {historyActionId === `apply:${version.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                            Transfer to Cards
-                          </button>
-                          {openApplication && (
-                            <button
-                              onClick={() => handleRevertApplication(openApplication)}
-                              disabled={historyActionId === `revert:${openApplication.id}`}
-                              className="inline-flex items-center gap-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200 transition-colors hover:bg-amber-500/15 disabled:opacity-50"
-                            >
-                              {historyActionId === `revert:${openApplication.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
-                              Revert Transfer
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                {versionsForActiveView.map((version) => renderSnapshotCard(version))}
               </div>
             )}
           </div>
