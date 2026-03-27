@@ -11,11 +11,25 @@ export async function processPDF(fileBuffer: Buffer): Promise<{
   const data = await pdf(fileBuffer);
 
   // pdf-parse can return null/undefined for image-only or encrypted PDFs
-  const text = data.text ?? '';
+  const rawText = data.text ?? '';
   const pageCount = data.numpages ?? 0;
+
+  // PostgreSQL rejects null bytes (\u0000) and some other invalid Unicode
+  // sequences that PDFs commonly contain. Strip them before saving.
+  const text = sanitizeForPostgres(rawText);
   const markdown = text ? convertPdfTextToMarkdown(text) : '';
 
   return { text, markdown, pageCount };
+}
+
+function sanitizeForPostgres(text: string): string {
+  return text
+    // Remove null bytes — PostgreSQL refuses to store \u0000 in text columns
+    .replace(/\u0000/g, '')
+    // Remove other C0/C1 control characters except tab, newline, carriage return
+    .replace(/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+    // Remove lone surrogates that form invalid Unicode (common in some PDFs)
+    .replace(/[\uD800-\uDFFF]/g, '');
 }
 
 function convertPdfTextToMarkdown(text: string): string {
