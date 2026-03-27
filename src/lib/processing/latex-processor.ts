@@ -147,7 +147,7 @@ export function convertLatexToMarkdown(tex: string, allFiles?: LatexFile[]): str
   );
 
   // 8. Sections (numbered & starred)
-  let sectionCounter = [0, 0, 0];
+  const sectionCounter = [0, 0, 0];
   md = md.replace(/\\(?:(sub){0,2})section\*?\{([\s\S]*?)\}/g, (_, subs, title) => {
     const level = subs ? (subs.length / 3) + 1 : 1; // section=1, subsection=2, subsubsection=3
     sectionCounter[level - 1]++;
