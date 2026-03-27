@@ -16,7 +16,9 @@ export default function BoardPage() {
   const [pdfUrl, setPdfUrl] = useState<string | undefined>(undefined);
 
   const pdfFile = files.find((f) => f.file_type === 'pdf');
-  const paperContext = pdfFile?.extracted_text?.slice(0, 3000) || '';
+  const latexFile = files.find((f) => f.file_type === 'zip');
+  const paperContext = latexFile?.extracted_text?.slice(0, 3000) || pdfFile?.extracted_text?.slice(0, 3000) || '';
+  const paperMarkdown = latexFile?.extracted_markdown || undefined;
 
   useEffect(() => {
     if (!pdfFile?.storage_path) return;
@@ -64,6 +66,7 @@ export default function BoardPage() {
         onRefresh={refetch}
         paperContext={paperContext}
         pdfUrl={pdfUrl}
+        paperMarkdown={paperMarkdown}
       />
     </div>
   );

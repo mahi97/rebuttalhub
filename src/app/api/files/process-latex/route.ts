@@ -1,6 +1,9 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { processLatexZip } from '@/lib/processing/latex-processor';
 import { NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -10,33 +13,39 @@ export async function POST(request: Request) {
 
     const { fileId } = await request.json();
 
-    const { data: fileRecord } = await supabase
+    const { data: fileRecord, error: fetchError } = await supabase
       .from('project_files')
       .select('*')
       .eq('id', fileId)
       .single();
 
-    if (!fileRecord) {
+    if (fetchError || !fileRecord) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
-    const { data: fileData } = await supabase.storage
+    const { data: fileData, error: storageError } = await supabase.storage
       .from('project-files')
       .download(fileRecord.storage_path);
 
-    if (!fileData) {
-      return NextResponse.json({ error: 'Failed to download file' }, { status: 500 });
+    if (storageError || !fileData) {
+      return NextResponse.json(
+        { error: storageError?.message || 'Failed to download file' },
+        { status: 500 }
+      );
     }
 
     const buffer = Buffer.from(await fileData.arrayBuffer());
     const { files, mainTex, markdown, fileTree } = await processLatexZip(buffer);
 
-    await supabase
+    // Use service client to bypass RLS for the write
+    const serviceSupabase = createServiceClient();
+    const { error: updateError } = await serviceSupabase
       .from('project_files')
       .update({
-        extracted_text: mainTex,
-        extracted_markdown: markdown,
+        extracted_text: mainTex || null,
+        extracted_markdown: markdown || null,
         metadata: {
+          ...(fileRecord.metadata || {}),
           fileCount: files.length,
           fileTree,
           texFiles: files.map((f) => ({ name: f.name, isMain: f.isMain })),
@@ -44,12 +53,20 @@ export async function POST(request: Request) {
       })
       .eq('id', fileId);
 
+    if (updateError) {
+      return NextResponse.json(
+        { error: `Processing succeeded but could not save: ${updateError.message}` },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       fileCount: files.length,
-      files: files.map((f) => ({ name: f.name, isMain: f.isMain })),
+      charCount: markdown?.length ?? 0,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'LaTeX processing failed' }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'LaTeX processing failed';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
