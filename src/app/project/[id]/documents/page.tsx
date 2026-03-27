@@ -15,7 +15,7 @@ const tabs = [
 export default function DocumentsPage() {
   const params = useParams();
   const projectId = params.id as string;
-  const { files, loading } = useProject(projectId);
+  const { files, loading, refetchFiles } = useProject(projectId);
   const [activeTab, setActiveTab] = useState('pdf');
 
   if (loading) {
@@ -62,7 +62,7 @@ export default function DocumentsPage() {
       {/* Content */}
       <div className="flex-1 overflow-hidden">
         {activeFile ? (
-          <FileViewer file={activeFile} />
+          <FileViewer file={activeFile} onProcessed={refetchFiles} />
         ) : (
           <div className="flex items-center justify-center h-full text-[var(--muted-foreground)]">
             <div className="text-center">

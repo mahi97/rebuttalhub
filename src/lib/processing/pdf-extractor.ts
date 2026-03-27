@@ -3,13 +3,12 @@ export async function processPDF(fileBuffer: Buffer): Promise<{
   markdown: string;
   pageCount: number;
 }> {
-  // Dynamic import to avoid bundling issues on Vercel
-  const pdf = (await import('pdf-parse')).default;
+  // Use lib path directly — importing the main entry point triggers pdf-parse's
+  // test runner which tries to read files from disk and fails in serverless envs.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const pdf = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer) => Promise<{ text: string; numpages: number }>;
 
-  const data = await pdf(fileBuffer, {
-    // Avoid loading the test file that pdf-parse bundles
-    max: 0,
-  });
+  const data = await pdf(fileBuffer);
 
   const text = data.text;
   const pageCount = data.numpages;
