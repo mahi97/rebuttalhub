@@ -17,9 +17,10 @@ interface KanbanBoardProps {
   onUpdatePoint: (pointId: string, updates: Partial<ReviewPoint>) => Promise<void>;
   onRefresh: () => Promise<void>;
   paperContext?: string;
+  pdfUrl?: string;
 }
 
-export default function KanbanBoard({ points, archivedPoints, members, reviews, onUpdatePoint, onRefresh, paperContext }: KanbanBoardProps) {
+export default function KanbanBoard({ points, archivedPoints, members, reviews, onUpdatePoint, onRefresh, paperContext, pdfUrl }: KanbanBoardProps) {
   const [selectedPoint, setSelectedPoint] = useState<ReviewPoint | null>(null);
   const [search, setSearch] = useState('');
   const [filterReviewer, setFilterReviewer] = useState('');
@@ -618,6 +619,7 @@ export default function KanbanBoard({ points, archivedPoints, members, reviews, 
           onMerge={(targetTaskId) => handleMergeTask(selectedPoint.id, targetTaskId)}
           onSplit={(payload) => handleSplitTask(selectedPoint.id, payload)}
           paperContext={paperContext}
+          pdfUrl={pdfUrl}
         />
       )}
     </div>

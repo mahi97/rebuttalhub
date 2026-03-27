@@ -23,6 +23,15 @@ export default function FileViewer({ file, onProcessed }: FileViewerProps) {
   });
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [justProcessed, setJustProcessed] = useState(false);
+
+  // Auto-switch to extracted text once it becomes available after re-processing
+  useEffect(() => {
+    if (justProcessed && file.extracted_markdown) {
+      setView('markdown');
+      setJustProcessed(false);
+    }
+  }, [file.extracted_markdown, justProcessed]);
 
   useEffect(() => {
     if (file.storage_path) {
@@ -54,6 +63,7 @@ export default function FileViewer({ file, onProcessed }: FileViewerProps) {
 
       if (res.ok) {
         toast.success('File processed successfully');
+        setJustProcessed(true);
         onProcessed?.();
       } else {
         const err = await res.json().catch(() => ({}));

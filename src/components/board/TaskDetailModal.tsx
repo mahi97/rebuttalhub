@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Sparkles, Loader2, ChevronDown, Minimize2, Code, Eye, ChevronLeft, ChevronRight, RotateCcw, Save } from 'lucide-react';
+import { X, Sparkles, Loader2, ChevronDown, Minimize2, Code, Eye, ChevronLeft, ChevronRight, RotateCcw, Save, FileText } from 'lucide-react';
 import MarkdownViewer from '@/components/ui/MarkdownViewer';
 import AutoResizeTextarea from '@/components/ui/AutoResizeTextarea';
 import CommentsSection from './CommentsSection';
@@ -31,6 +31,7 @@ interface TaskDetailModalProps {
   onMerge?: (targetTaskId: string) => Promise<void>;
   onSplit?: (payload: { originalPointText: string; newPointText: string; newLabel: string }) => Promise<void>;
   paperContext?: string;
+  pdfUrl?: string;
 }
 
 function buildEditableState(point: ReviewPoint): EditableTaskState {
@@ -73,6 +74,7 @@ export default function TaskDetailModal({
   onMerge,
   onSplit,
   paperContext,
+  pdfUrl,
 }: TaskDetailModalProps) {
   const lastPointIdRef = useRef<string | null>(null);
   const [savedState, setSavedState] = useState<EditableTaskState>(() => buildEditableState(point));
@@ -92,6 +94,7 @@ export default function TaskDetailModal({
   const [splitNewLabel, setSplitNewLabel] = useState(getDefaultSplitLabel(point));
   const [splitting, setSplitting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showPdf, setShowPdf] = useState(false);
   const [pendingAction, setPendingAction] = useState<
     | { type: 'close' }
     | { type: 'navigate'; target: ReviewPoint; direction: 'previous' | 'next' }
@@ -319,14 +322,14 @@ export default function TaskDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm overflow-auto py-8"
+      className={`fixed inset-0 z-50 flex bg-black/60 backdrop-blur-sm ${showPdf ? '' : 'items-start justify-center overflow-auto py-8'}`}
       onClick={(event) => {
-        if (event.target === event.currentTarget) {
+        if (!showPdf && event.target === event.currentTarget) {
           requestAction({ type: 'close' });
         }
       }}
     >
-      <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] w-full max-w-3xl mx-4 shadow-2xl">
+      <div className={`bg-[var(--card)] border border-[var(--border)] shadow-2xl flex flex-col ${showPdf ? 'w-[50%] min-w-0 h-full rounded-l-xl rounded-r-none border-r-0' : 'rounded-xl w-full max-w-3xl mx-4'}`}>
         {/* Header */}
         <div className="flex items-start justify-between p-5 border-b border-[var(--border)]">
           <div className="flex items-center gap-2">
@@ -384,13 +387,23 @@ export default function TaskDetailModal({
                 Delete
               </button>
             )}
+            {pdfUrl && (
+              <button
+                onClick={() => setShowPdf((v) => !v)}
+                title={showPdf ? 'Hide PDF panel' : 'Open PDF side-by-side'}
+                className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors ${showPdf ? 'bg-blue-500/20 text-blue-400' : 'text-[var(--muted-foreground)] hover:text-white hover:bg-white/10'}`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                PDF
+              </button>
+            )}
             <button onClick={() => requestAction({ type: 'close' })} className="p-1 rounded hover:bg-white/10">
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        <div className="p-5 space-y-5 max-h-[calc(100vh-200px)] overflow-auto">
+        <div className={`p-5 space-y-5 overflow-auto ${showPdf ? 'flex-1' : 'max-h-[calc(100vh-200px)]'}`}>
           {/* Reviewer Comment with Markdown rendering */}
           <div>
             <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
@@ -730,6 +743,25 @@ export default function TaskDetailModal({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* PDF panel — iframe is always mounted to preserve browser scroll/page position.
+           Only the wrapper div is hidden so the browser retains the PDF's internal state. */}
+      <div
+        style={{ display: showPdf ? 'flex' : 'none' }}
+        className="w-[50%] min-w-0 h-full flex-col bg-[var(--background)] border border-[var(--border)] rounded-r-xl overflow-hidden"
+      >
+        {pdfUrl ? (
+          <iframe
+            src={pdfUrl}
+            className="w-full h-full border-0"
+            title="Paper PDF"
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-[var(--muted-foreground)] text-sm">
+            No PDF uploaded for this project.
+          </div>
+        )}
       </div>
 
       {pendingAction && (

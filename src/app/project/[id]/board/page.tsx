@@ -5,22 +5,33 @@ import { useProject } from '@/hooks/useProject';
 import { useReviews } from '@/hooks/useReviews';
 import { useRealtimeUpdates } from '@/hooks/useRealtimeUpdates';
 import KanbanBoard from '@/components/board/KanbanBoard';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 export default function BoardPage() {
   const params = useParams();
   const projectId = params.id as string;
   const { members, files } = useProject(projectId);
   const { reviews, reviewPoints, archivedReviewPoints, loading, refetch, updatePoint } = useReviews(projectId);
+  const [pdfUrl, setPdfUrl] = useState<string | undefined>(undefined);
+
+  const pdfFile = files.find((f) => f.file_type === 'pdf');
+  const paperContext = pdfFile?.extracted_text?.slice(0, 3000) || '';
+
+  useEffect(() => {
+    if (!pdfFile?.storage_path) return;
+    const supabase = createClient();
+    supabase.storage
+      .from('project-files')
+      .createSignedUrl(pdfFile.storage_path, 14400) // 4-hour signed URL
+      .then(({ data }) => { if (data?.signedUrl) setPdfUrl(data.signedUrl); });
+  }, [pdfFile?.storage_path]);
 
   const handleRealtimeUpdate = useCallback(() => {
     refetch();
   }, [refetch]);
 
   useRealtimeUpdates(projectId, handleRealtimeUpdate);
-
-  const pdfFile = files.find((f) => f.file_type === 'pdf');
-  const paperContext = pdfFile?.extracted_text?.slice(0, 3000) || '';
 
   if (loading) {
     return (
@@ -52,6 +63,7 @@ export default function BoardPage() {
         onUpdatePoint={updatePoint}
         onRefresh={refetch}
         paperContext={paperContext}
+        pdfUrl={pdfUrl}
       />
     </div>
   );
