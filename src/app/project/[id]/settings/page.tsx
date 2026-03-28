@@ -13,7 +13,9 @@ export default function ProjectSettingsPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.id as string;
-  const { project, members, loading, refetchProject } = useProject(projectId);
+  const { project, members, loading, refetchProject } = useProject(projectId, {
+    includeFiles: false,
+  });
   const [showInvite, setShowInvite] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');

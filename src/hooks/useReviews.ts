@@ -4,7 +4,14 @@ import { useCallback, useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Review, ReviewPoint } from '@/types';
 
-export function useReviews(projectId: string) {
+interface UseReviewsOptions {
+  includeArchivedPoints?: boolean;
+}
+
+export function useReviews(
+  projectId: string,
+  { includeArchivedPoints = false }: UseReviewsOptions = {}
+) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewPoints, setReviewPoints] = useState<ReviewPoint[]>([]);
   const [archivedReviewPoints, setArchivedReviewPoints] = useState<ReviewPoint[]>([]);
@@ -34,6 +41,11 @@ export function useReviews(projectId: string) {
   }, [projectId]);
 
   const fetchArchivedPoints = useCallback(async () => {
+    if (!includeArchivedPoints) {
+      setArchivedReviewPoints([]);
+      return;
+    }
+
     const supabase = createClient();
     const { data } = await supabase
       .from('review_points')
@@ -44,17 +56,21 @@ export function useReviews(projectId: string) {
       .order('deleted_at', { ascending: false });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setArchivedReviewPoints((data as any) || []);
-  }, [projectId]);
+  }, [includeArchivedPoints, projectId]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([fetchReviews(), fetchPoints(), fetchArchivedPoints()]);
+    await Promise.all([
+      fetchReviews(),
+      fetchPoints(),
+      ...(includeArchivedPoints ? [fetchArchivedPoints()] : []),
+    ]);
     setLoading(false);
-  }, [fetchReviews, fetchPoints, fetchArchivedPoints]);
+  }, [fetchReviews, fetchPoints, fetchArchivedPoints, includeArchivedPoints]);
 
   useEffect(() => {
     fetchedRef.current = false;
-  }, [projectId]);
+  }, [includeArchivedPoints, projectId]);
 
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -86,8 +102,12 @@ export function useReviews(projectId: string) {
   );
 
   const refetch = useCallback(async () => {
-    await Promise.all([fetchReviews(), fetchPoints(), fetchArchivedPoints()]);
-  }, [fetchReviews, fetchPoints, fetchArchivedPoints]);
+    await Promise.all([
+      fetchReviews(),
+      fetchPoints(),
+      ...(includeArchivedPoints ? [fetchArchivedPoints()] : []),
+    ]);
+  }, [fetchReviews, fetchPoints, fetchArchivedPoints, includeArchivedPoints]);
 
   return { reviews, reviewPoints, archivedReviewPoints, loading, refetch, updatePoint };
 }

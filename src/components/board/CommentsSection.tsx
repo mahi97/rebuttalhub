@@ -210,6 +210,7 @@ export default function CommentsSection({ reviewPointId, projectId, members }: C
               placeholder="Add a comment..."
               className="flex-1 bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
               minHeight={44}
+              maxHeight={160}
             />
             <button
               onClick={async () => {
@@ -313,6 +314,7 @@ function CommentItem({
                 placeholder="Write a reply..."
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                 minHeight={44}
+                maxHeight={160}
               />
               <div className="flex justify-end gap-2">
                 <button

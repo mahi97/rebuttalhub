@@ -11,7 +11,9 @@ import { calculateWeightedTaskProgress } from '@/lib/utils';
 export default function ProjectOverviewPage() {
   const params = useParams();
   const projectId = params.id as string;
-  const { project, members, files, loading, refetchFiles } = useProject(projectId);
+  const { project, members, files, loading, refetchFiles } = useProject(projectId, {
+    fileSelect: 'id, file_name, file_type, file_size, extracted_markdown',
+  });
   const { reviews, reviewPoints } = useReviews(projectId);
 
   if (loading) {

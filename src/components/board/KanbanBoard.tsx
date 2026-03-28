@@ -186,14 +186,9 @@ export default function KanbanBoard({ points, archivedPoints, members, reviews, 
   useEffect(() => {
     if (!selectedPoint) return;
 
-    const refreshedPoint = points.find((point) => point.id === selectedPoint.id);
-    if (!refreshedPoint) {
+    const hasSelectedPoint = points.some((point) => point.id === selectedPoint.id);
+    if (!hasSelectedPoint) {
       setSelectedPoint(null);
-      return;
-    }
-
-    if (refreshedPoint !== selectedPoint) {
-      setSelectedPoint(refreshedPoint);
     }
   }, [points, selectedPoint]);
 

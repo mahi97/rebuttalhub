@@ -11,8 +11,13 @@ import { createClient } from '@/lib/supabase/client';
 export default function BoardPage() {
   const params = useParams();
   const projectId = params.id as string;
-  const { members, files } = useProject(projectId);
-  const { reviews, reviewPoints, archivedReviewPoints, loading, refetch, updatePoint } = useReviews(projectId);
+  const { members, files } = useProject(projectId, {
+    includeProject: false,
+    fileSelect: 'id, file_type, storage_path, extracted_text, extracted_markdown',
+  });
+  const { reviews, reviewPoints, archivedReviewPoints, loading, refetch, updatePoint } = useReviews(projectId, {
+    includeArchivedPoints: true,
+  });
   const [pdfUrl, setPdfUrl] = useState<string | undefined>(undefined);
 
   const pdfFile = files.find((f) => f.file_type === 'pdf');

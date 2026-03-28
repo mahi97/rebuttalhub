@@ -8,7 +8,10 @@ import RebuttalCompiler from '@/components/export/RebuttalCompiler';
 export default function ExportPage() {
   const params = useParams();
   const projectId = params.id as string;
-  const { project, loading: projectLoading } = useProject(projectId);
+  const { project, loading: projectLoading } = useProject(projectId, {
+    includeMembers: false,
+    includeFiles: false,
+  });
   const { reviews, reviewPoints, loading: reviewsLoading, refetch } = useReviews(projectId);
 
   if (projectLoading || reviewsLoading) {

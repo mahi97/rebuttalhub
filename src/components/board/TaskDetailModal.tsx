@@ -323,112 +323,113 @@ export default function TaskDetailModal({
   const sectionClass = SECTION_COLORS[point.section] || SECTION_COLORS['Other'];
 
   return (
-    <div
-      className={`fixed inset-0 z-50 flex bg-black/60 backdrop-blur-sm ${sidePanel !== 'none' ? '' : 'items-start justify-center overflow-auto py-8'}`}
-      onClick={(event) => {
-        if (sidePanel === 'none' && event.target === event.currentTarget) {
-          requestAction({ type: 'close' });
-        }
-      }}
-    >
-      <div className={`bg-[var(--card)] border border-[var(--border)] shadow-2xl flex flex-col ${sidePanel !== 'none' ? 'w-[50%] min-w-0 h-full rounded-l-xl rounded-r-none border-r-0' : 'rounded-xl w-full max-w-3xl mx-4'}`}>
-        {/* Header */}
-        <div className="flex items-start justify-between p-5 border-b border-[var(--border)]">
-          <div className="flex items-center gap-2">
-            <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${sectionClass}`}>
-              {point.label || point.section}
-            </span>
-            <span className="text-xs text-[var(--muted-foreground)]">
-              {point.section} &middot; {point.review?.reviewer_name || 'Reviewer'}
-            </span>
-            {isDirty && (
-              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
-                Unsaved changes
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm p-4">
+      <div
+        className={`flex h-full w-full ${sidePanel !== 'none' ? 'items-stretch justify-stretch' : 'items-center justify-center'}`}
+        onClick={(event) => {
+          if (sidePanel === 'none' && event.target === event.currentTarget) {
+            requestAction({ type: 'close' });
+          }
+        }}
+      >
+        <div className={`bg-[var(--card)] border border-[var(--border)] shadow-2xl flex min-h-0 flex-col overflow-hidden ${sidePanel !== 'none' ? 'w-[50%] min-w-0 h-full rounded-l-xl rounded-r-none border-r-0' : 'h-full max-h-full w-full max-w-3xl rounded-xl'}`}>
+          {/* Header */}
+          <div className="flex items-start justify-between p-5 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2">
+              <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${sectionClass}`}>
+                {point.label || point.section}
               </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => prevTask && requestAction({ type: 'navigate', target: prevTask, direction: 'previous' })}
-              disabled={!prevTask}
-              className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--muted-foreground)] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-              title="Previous task"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-              Prev
-            </button>
-            <button
-              onClick={() => nextTask && requestAction({ type: 'navigate', target: nextTask, direction: 'next' })}
-              disabled={!nextTask}
-              className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--muted-foreground)] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-              title="Next task"
-            >
-              Next
-              <ChevronRight className="h-3.5 w-3.5" />
-            </button>
-            {onMerge && (
+              <span className="text-xs text-[var(--muted-foreground)]">
+                {point.section} &middot; {point.review?.reviewer_name || 'Reviewer'}
+              </span>
+              {isDirty && (
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                  Unsaved changes
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
               <button
-                onClick={() => setShowMergePanel((prev) => !prev)}
-                className="px-2 py-1 text-xs text-[var(--muted-foreground)] hover:text-white rounded hover:bg-white/10"
-                title="Merge task"
+                onClick={() => prevTask && requestAction({ type: 'navigate', target: prevTask, direction: 'previous' })}
+                disabled={!prevTask}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--muted-foreground)] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                title="Previous task"
               >
-                Merge
+                <ChevronLeft className="h-3.5 w-3.5" />
+                Prev
               </button>
-            )}
-            {onSplit && (
               <button
-                onClick={() => setShowSplitPanel((prev) => !prev)}
-                className="px-2 py-1 text-xs text-[var(--muted-foreground)] hover:text-white rounded hover:bg-white/10"
-                title="Split task"
+                onClick={() => nextTask && requestAction({ type: 'navigate', target: nextTask, direction: 'next' })}
+                disabled={!nextTask}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--muted-foreground)] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                title="Next task"
               >
-                Split
+                Next
+                <ChevronRight className="h-3.5 w-3.5" />
               </button>
-            )}
-            {onDelete && (
-              <button onClick={onDelete} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 rounded hover:bg-red-500/10" title="Delete task">
-                Delete
+              {onMerge && (
+                <button
+                  onClick={() => setShowMergePanel((prev) => !prev)}
+                  className="px-2 py-1 text-xs text-[var(--muted-foreground)] hover:text-white rounded hover:bg-white/10"
+                  title="Merge task"
+                >
+                  Merge
+                </button>
+              )}
+              {onSplit && (
+                <button
+                  onClick={() => setShowSplitPanel((prev) => !prev)}
+                  className="px-2 py-1 text-xs text-[var(--muted-foreground)] hover:text-white rounded hover:bg-white/10"
+                  title="Split task"
+                >
+                  Split
+                </button>
+              )}
+              {onDelete && (
+                <button onClick={onDelete} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 rounded hover:bg-red-500/10" title="Delete task">
+                  Delete
+                </button>
+              )}
+              {(pdfUrl || paperMarkdown) && (
+                <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] p-0.5">
+                  {pdfUrl && (
+                    <button
+                      onClick={() => setSidePanel((v) => v === 'pdf' ? 'none' : 'pdf')}
+                      title={sidePanel === 'pdf' ? 'Hide PDF panel' : 'View PDF side-by-side'}
+                      className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors ${sidePanel === 'pdf' ? 'bg-blue-500/20 text-blue-400' : 'text-[var(--muted-foreground)] hover:text-white hover:bg-white/10'}`}
+                    >
+                      <FileText className="w-3 h-3" />
+                      PDF
+                    </button>
+                  )}
+                  {paperMarkdown && (
+                    <button
+                      onClick={() => setSidePanel((v) => v === 'markdown' ? 'none' : 'markdown')}
+                      title={sidePanel === 'markdown' ? 'Hide paper panel' : 'View paper markdown side-by-side'}
+                      className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors ${sidePanel === 'markdown' ? 'bg-blue-500/20 text-blue-400' : 'text-[var(--muted-foreground)] hover:text-white hover:bg-white/10'}`}
+                    >
+                      <Eye className="w-3 h-3" />
+                      Paper
+                    </button>
+                  )}
+                </div>
+              )}
+              <button onClick={() => requestAction({ type: 'close' })} className="p-1 rounded hover:bg-white/10">
+                <X className="w-5 h-5" />
               </button>
-            )}
-            {(pdfUrl || paperMarkdown) && (
-              <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] p-0.5">
-                {pdfUrl && (
-                  <button
-                    onClick={() => setSidePanel((v) => v === 'pdf' ? 'none' : 'pdf')}
-                    title={sidePanel === 'pdf' ? 'Hide PDF panel' : 'View PDF side-by-side'}
-                    className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors ${sidePanel === 'pdf' ? 'bg-blue-500/20 text-blue-400' : 'text-[var(--muted-foreground)] hover:text-white hover:bg-white/10'}`}
-                  >
-                    <FileText className="w-3 h-3" />
-                    PDF
-                  </button>
-                )}
-                {paperMarkdown && (
-                  <button
-                    onClick={() => setSidePanel((v) => v === 'markdown' ? 'none' : 'markdown')}
-                    title={sidePanel === 'markdown' ? 'Hide paper panel' : 'View paper markdown side-by-side'}
-                    className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors ${sidePanel === 'markdown' ? 'bg-blue-500/20 text-blue-400' : 'text-[var(--muted-foreground)] hover:text-white hover:bg-white/10'}`}
-                  >
-                    <Eye className="w-3 h-3" />
-                    Paper
-                  </button>
-                )}
-              </div>
-            )}
-            <button onClick={() => requestAction({ type: 'close' })} className="p-1 rounded hover:bg-white/10">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        <div className={`p-5 space-y-5 overflow-auto ${sidePanel !== 'none' ? 'flex-1' : 'max-h-[calc(100vh-200px)]'}`}>
-          {/* Reviewer Comment with Markdown rendering */}
-          <div>
-            <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
-              {point.section === 'Thank You' ? 'Reviewer Strengths' : 'Reviewer Comment'}
-            </h4>
-            <div className="p-3 bg-[var(--background)] rounded-lg text-sm leading-relaxed">
-              <MarkdownViewer content={point.point_text} showToggle />
             </div>
           </div>
+
+          <div className="flex-1 min-h-0 space-y-5 overflow-y-auto overscroll-contain p-5">
+            {/* Reviewer Comment with Markdown rendering */}
+            <div>
+              <h4 className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
+                {point.section === 'Thank You' ? 'Reviewer Strengths' : 'Reviewer Comment'}
+              </h4>
+              <div className="p-3 bg-[var(--background)] rounded-lg text-sm leading-relaxed">
+                <MarkdownViewer content={point.point_text} showToggle />
+              </div>
+            </div>
 
           {/* Status */}
           <div>
@@ -559,6 +560,7 @@ export default function TaskDetailModal({
                   onChange={(e) => setSplitOriginalText(e.target.value)}
                   className="w-full bg-[var(--card)] border border-[var(--border)] rounded-lg p-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                   minHeight={100}
+                  maxHeight={240}
                 />
               </div>
 
@@ -585,6 +587,7 @@ export default function TaskDetailModal({
                     placeholder="Describe the additional sub-task you want to create from this reviewer comment..."
                     className="w-full bg-[var(--card)] border border-[var(--border)] rounded-lg p-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                     minHeight={100}
+                    maxHeight={240}
                   />
                 </div>
               </div>
@@ -672,7 +675,8 @@ export default function TaskDetailModal({
                   onChange={(e) => setDraftResponse(e.target.value)}
                   placeholder={point.section === 'Thank You' ? 'Write or generate the thank-you note...' : 'Write or generate a draft response...'}
                   className="w-full bg-transparent p-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  minHeight={120}
+                  minHeight={160}
+                  maxHeight={420}
                 />
               ) : (
                 <div className="min-h-[120px] p-3 text-sm">
@@ -707,7 +711,8 @@ export default function TaskDetailModal({
                 onChange={(e) => setFinalResponse(e.target.value)}
                 placeholder="Finalized response for export..."
                 className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                minHeight={80}
+                minHeight={120}
+                maxHeight={320}
               />
             </div>
           </details>
@@ -723,7 +728,8 @@ export default function TaskDetailModal({
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Internal notes..."
                 className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                minHeight={60}
+                minHeight={100}
+                maxHeight={260}
               />
             </div>
           </details>
@@ -797,6 +803,7 @@ export default function TaskDetailModal({
             No LaTeX source processed for this project.
           </div>
         )}
+      </div>
       </div>
 
       {pendingAction && (

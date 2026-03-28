@@ -4,7 +4,22 @@ import { useCallback, useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Project, ProjectMember, ProjectFile, Profile } from '@/types';
 
-export function useProject(projectId: string) {
+interface UseProjectOptions {
+  includeProject?: boolean;
+  includeMembers?: boolean;
+  includeFiles?: boolean;
+  fileSelect?: string;
+}
+
+export function useProject(
+  projectId: string,
+  {
+    includeProject = true,
+    includeMembers = true,
+    includeFiles = true,
+    fileSelect = '*',
+  }: UseProjectOptions = {}
+) {
   const [project, setProject] = useState<Project | null>(null);
   const [members, setMembers] = useState<(ProjectMember & { profile: Profile })[]>([]);
   const [files, setFiles] = useState<ProjectFile[]>([]);
@@ -12,6 +27,11 @@ export function useProject(projectId: string) {
   const fetchedRef = useRef(false);
 
   const fetchProject = useCallback(async () => {
+    if (!includeProject) {
+      setProject(null);
+      return;
+    }
+
     const supabase = createClient();
     const { data } = await supabase
       .from('projects')
@@ -19,9 +39,14 @@ export function useProject(projectId: string) {
       .eq('id', projectId)
       .single();
     setProject(data);
-  }, [projectId]);
+  }, [includeProject, projectId]);
 
   const fetchMembers = useCallback(async () => {
+    if (!includeMembers) {
+      setMembers([]);
+      return;
+    }
+
     const supabase = createClient();
     const { data } = await supabase
       .from('project_members')
@@ -29,21 +54,26 @@ export function useProject(projectId: string) {
       .eq('project_id', projectId);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setMembers((data as any) || []);
-  }, [projectId]);
+  }, [includeMembers, projectId]);
 
   const fetchFiles = useCallback(async () => {
+    if (!includeFiles) {
+      setFiles([]);
+      return;
+    }
+
     const supabase = createClient();
     const { data } = await supabase
       .from('project_files')
-      .select('*')
+      .select(fileSelect)
       .eq('project_id', projectId)
       .order('created_at', { ascending: false });
     setFiles(data || []);
-  }, [projectId]);
+  }, [fileSelect, includeFiles, projectId]);
 
   useEffect(() => {
     fetchedRef.current = false;
-  }, [projectId]);
+  }, [fileSelect, includeFiles, includeMembers, includeProject, projectId]);
 
   useEffect(() => {
     if (fetchedRef.current) return;
